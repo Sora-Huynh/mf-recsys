@@ -11,8 +11,8 @@ trong đó Q_u CHỈ gồm các hàng của phim user u đã đánh giá, không
 đó mỗi user có một ma trận k×k khác nhau. Ma trận này đối xứng xác định dương khi
 λ > 0 nên dùng Cholesky: nhanh gấp đôi LU và ổn định, không cần chọn trụ.
 
-Vì sao cần λ > 0: user ít đánh giá (n_u < k) làm Q_uᵀQ_u suy biến. ML-1M có user chỉ
-20 đánh giá, còn khoảng 16 trong train, nên suy biến thật khi k ≥ 20.
+Vì sao cần λ > 0: user ít đánh giá (n_u < k) làm Q_uᵀQ_u suy biến. Sau khi chia tập, 390
+user có dưới 20 đánh giá trong train (ít nhất là 11), nên với k = 20 hệ suy biến thật.
 
 Vòng lặp Python theo user/phim (vài nghìn lần) là chấp nhận được; không lặp theo từng
 đánh giá.

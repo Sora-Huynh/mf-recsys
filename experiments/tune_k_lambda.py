@@ -1,8 +1,9 @@
 """Quét k và λ trên tập val.
 
 Mục đích: chọn tham số bằng val, không bằng test, để RMSE test cuối cùng không bị lạc
-quan. Quét gọn: lưới (k, λ) cho ALS; chỉ k cho SVD. SGD dùng k tốt nhất của ALS và chỉ
-quét reg của chính nó quanh giá trị mặc định. Liên quan Ch.3 và Ch.4.
+quan. Quét gọn: với ALS, quét k rồi quét λ riêng, không làm lưới đầy đủ; chỉ k cho SVD.
+SGD dùng k tốt nhất của ALS và chỉ quét reg của chính nó quanh giá trị mặc định.
+Liên quan Ch.3 và Ch.4.
 
 Chạy: python -m experiments.tune_k_lambda
 """
@@ -18,7 +19,7 @@ from src.config import load_config, set_seed
 
 
 def sweep_als(cfg: dict[str, Any]) -> pd.DataFrame:
-    """Quét lưới (k, λ) cho ALS.
+    """Quét k (giữ λ mặc định) rồi quét λ (giữ k mặc định) cho ALS.
 
     Args:
         cfg: Cấu hình từ `load_config`.
@@ -26,7 +27,7 @@ def sweep_als(cfg: dict[str, Any]) -> pd.DataFrame:
     Returns:
         DataFrame cột `k`, `reg`, `val_rmse`, `fit_time_s`.
     """
-    # TODO: lặp cfg["tune"]["k_grid"] × cfg["tune"]["reg_grid"].
+    # TODO: lặp cfg["tune"]["k_grid"], rồi lặp cfg["tune"]["reg_grid"]; bỏ lần chạy trùng.
     raise NotImplementedError
 
 
