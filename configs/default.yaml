@@ -1,0 +1,60 @@
+# Cấu hình tập trung: mọi tham số thí nghiệm nằm ở đây, không hard-code trong code.
+# Các giá trị k, reg, lr là điểm khởi đầu, sẽ được chỉnh theo tập val.
+
+seed: 42
+
+paths:
+  raw_dir: data/raw/ml-1m
+  processed_dir: data/processed
+  figures_dir: results/figures
+  tables_dir: results/tables
+  models_dir: results/models
+
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+
+ratings:
+  min: 1.0
+  max: 5.0
+
+baseline:
+  reg: 10.0         # shrinkage cho bias user/phim
+
+svd:
+  k: 20
+
+als:
+  k: 20
+  reg: 10.0         # λ trong (QᵀQ + λI)p = Qᵀr
+  n_epochs: 20
+  init_std: 0.1
+  solver: cholesky  # cholesky | gauss_seidel (tùy chọn)
+
+sgd:
+  k: 20
+  reg: 0.02         # λ theo từng đánh giá, KHÔNG cùng thang với als.reg
+  n_epochs: 30
+  batch_size: 4096
+  init_std: 0.1
+  optimizer: adam   # sgd | momentum | adam
+  lr:
+    sgd: 0.05
+    momentum: 0.01
+    adam: 0.001
+  momentum_beta: 0.9
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_eps: 0.00000001
+
+tune:
+  k_grid: [10, 20, 50]
+  reg_grid: [1.0, 5.0, 10.0, 20.0]
+
+conditioning:
+  reg_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+  n_users: 200      # số user lấy mẫu để tính κ
+
+recommend:
+  top_n: 10
