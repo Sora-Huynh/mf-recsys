@@ -32,19 +32,16 @@ class TruncatedSVDRecommender(Recommender):
             k: Số thành phần giữ lại.
             baseline: `BiasBaseline` đã fit.
         """
+        super().__init__(baseline.rating_min, baseline.rating_max)
         self.k = k
         self.baseline = baseline
 
-    def fit(
-        self,
-        train: sp.csr_matrix,
-        val: sp.csr_matrix | None = None,
-    ) -> "TruncatedSVDRecommender":
-        """Phân rã SVD phần dư. Xem `Recommender.fit`."""
+    def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
+        """Phân rã SVD phần dư. Xem `Recommender._fit`."""
         # TODO: scipy.sparse.linalg.svds(residual, k). Hàm trả σ tăng dần, cần đảo thứ tự.
         raise NotImplementedError
 
-    def predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính baseline + Σ_j u_j σ_j v_j. Xem `Recommender.predict`."""
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Tính baseline + Σ_j u_j σ_j v_j. Xem `Recommender.predict_raw`."""
         # TODO: einsum trên hàng của U và V, không dựng lại ma trận đầy đủ.
         raise NotImplementedError

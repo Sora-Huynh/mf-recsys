@@ -122,6 +122,7 @@ class SGDRecommender(Recommender):
             hyper: Các hệ số của optimizer.
             seed: Seed khởi tạo và xáo dữ liệu.
         """
+        super().__init__(baseline.rating_min, baseline.rating_max)
         self.k = k
         self.reg = reg
         self.lr = lr
@@ -134,12 +135,12 @@ class SGDRecommender(Recommender):
         self.seed = seed
         self.log = ConvergenceLog()
 
-    def fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None = None) -> "SGDRecommender":
-        """Lặp theo epoch và mini-batch, ghi `self.log`. Xem `Recommender.fit`."""
+    def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
+        """Lặp theo epoch và mini-batch, ghi `self.log`. Xem `Recommender._fit`."""
         # TODO: xáo dữ liệu mỗi epoch; batch_gradients + apply_update; không tính giờ phần đánh giá.
         raise NotImplementedError
 
-    def predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính baseline + p_uᵀq_i. Xem `Recommender.predict`."""
-        # TODO: einsum trên P[users], Q[items] rồi np.clip.
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Tính baseline + p_uᵀq_i. Xem `Recommender.predict_raw`."""
+        # TODO: baseline.predict_raw + einsum trên P[users], Q[items].
         raise NotImplementedError

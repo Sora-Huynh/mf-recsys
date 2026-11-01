@@ -9,7 +9,7 @@ Mỗi người sở hữu trọn một nhóm file, nhờ đó ít xung đột gi
 
 | Người | Vai trò | File sở hữu |
 |---|---|---|
-| A | Tích hợp | `src/config.py`, `configs/`, `src/models/base.py`, `experiments/compare_all.py`, `tests/test_models_small.py`, `README.md` |
+| A | Tích hợp | `src/config.py`, `configs/`, `src/models/base.py`, `experiments/compare_all.py`, `tests/test_base.py`, `tests/test_models_small.py`, `README.md` |
 | B | Dữ liệu | `src/data/*`, `notebooks/01_eda.ipynb` |
 | C | Baseline + demo | `src/models/baseline.py`, `experiments/run_baseline.py`, `src/recommend.py`, `tests/test_metrics.py` |
 | D | SVD | `src/models/svd.py`, `experiments/run_svd.py` |
@@ -29,7 +29,7 @@ Mốc cuối tuần: có dữ liệu sạch, baseline chạy được, giao di�
 | Bước | Việc | File cần điền | Đầu ra | Tiêu chí "xong" | Phụ trách |
 |---|---|---|---|---|---|
 | 1.1 | Khởi tạo git, môi trường, tải dữ liệu | `.gitignore`, `requirements.txt` | Repo chung, mọi người chạy được | Cả 7 người chạy `python -m pytest` và `python -m src.data.download` thành công | A |
-| 1.2 | Chốt hợp đồng mô hình | `src/models/base.py` | Giao diện `fit/predict/recommend/save/load` | Cả nhóm đồng ý; từ đây chữ ký không đổi nếu không báo trước | A |
+| 1.2 | Chốt hợp đồng mô hình | `src/models/base.py`, `tests/test_base.py` | Giao diện `fit/predict/recommend/save/load`; mô hình con chỉ cài `_fit` và `predict_raw` | Test hợp đồng qua; cả nhóm đồng ý; từ đây chữ ký không đổi nếu không báo trước | A |
 | 1.3 | Tiền xử lý | `src/data/preprocess.py` | Train/val/test, ánh xạ ID trong `data/processed/` | Chạy hai lần cho kết quả giống hệt; mọi user/phim ở val, test đều có trong train; tổng đúng 1.000.209 dòng | B |
 | 1.4 | CSR | `src/data/sparse.py` | Ma trận train CSR, bảng bộ nhớ dense vs CSR | `nnz` khớp số dòng train; lưu rồi đọc lại không đổi | B |
 | 1.5 | EDA | `notebooks/01_eda.ipynb` | Hình phân phối điểm, đuôi dài, độ thưa | Mỗi hình có một nhận xét dẫn tới lựa chọn ở bước sau | B |

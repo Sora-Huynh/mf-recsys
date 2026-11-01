@@ -59,7 +59,7 @@ python -m src.data.download
 
 ## Cách chạy
 
-> Hiện repo mới là khung: chỉ `config`, `download`, `load`, `metrics` đã hoàn chỉnh, các
+> Hiện repo mới là khung: chỉ `config`, `download`, `load`, `metrics`, `models/base` đã hoàn chỉnh, các
 > lệnh còn lại sẽ báo `NotImplementedError` cho tới khi được cài. Tiến độ xem ở
 > [ROADMAP.md](ROADMAP.md).
 

@@ -99,6 +99,7 @@ class ALSRecommender(Recommender):
             solver: `cholesky` hoặc `gauss_seidel`.
             seed: Seed khởi tạo.
         """
+        super().__init__(baseline.rating_min, baseline.rating_max)
         self.k = k
         self.reg = reg
         self.n_epochs = n_epochs
@@ -108,12 +109,12 @@ class ALSRecommender(Recommender):
         self.seed = seed
         self.log = ConvergenceLog()
 
-    def fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None = None) -> "ALSRecommender":
-        """Luân phiên cập nhật P, Q và ghi `self.log`. Xem `Recommender.fit`."""
+    def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
+        """Luân phiên cập nhật P, Q và ghi `self.log`. Xem `Recommender._fit`."""
         # TODO: khởi tạo Q; lặp update_factors hai chiều; ghi log, không tính giờ phần đánh giá.
         raise NotImplementedError
 
-    def predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính baseline + p_uᵀq_i. Xem `Recommender.predict`."""
-        # TODO: einsum trên P[users], Q[items] rồi np.clip.
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Tính baseline + p_uᵀq_i. Xem `Recommender.predict_raw`."""
+        # TODO: baseline.predict_raw + einsum trên P[users], Q[items].
         raise NotImplementedError

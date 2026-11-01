@@ -29,17 +29,16 @@ class GlobalMean(Recommender):
             rating_min: Cận dưới khi clip.
             rating_max: Cận trên khi clip.
         """
-        self.rating_min = rating_min
-        self.rating_max = rating_max
+        super().__init__(rating_min, rating_max)
 
-    def fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None = None) -> "GlobalMean":
-        """Tính μ. Xem `Recommender.fit`."""
+    def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
+        """Tính μ. Xem `Recommender._fit`."""
         # TODO: μ = train.data.mean().
         raise NotImplementedError
 
-    def predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Trả về mảng hằng μ. Xem `Recommender.predict`."""
-        # TODO: np.full_like theo kích thước users.
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Trả về mảng hằng μ. Xem `Recommender.predict_raw`."""
+        # TODO: np.full theo kích thước users, dtype float64.
         raise NotImplementedError
 
 
@@ -59,31 +58,20 @@ class BiasBaseline(Recommender):
             rating_min: Cận dưới khi clip.
             rating_max: Cận trên khi clip.
         """
+        super().__init__(rating_min, rating_max)
         self.reg = reg
-        self.rating_min = rating_min
-        self.rating_max = rating_max
 
-    def fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None = None) -> "BiasBaseline":
-        """Tính μ, b_u, b_i. Xem `Recommender.fit`."""
+    def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
+        """Tính μ, b_u, b_i. Xem `Recommender._fit`."""
         # TODO: tính theo công thức đầu file bằng np.bincount, không lặp từng đánh giá.
         raise NotImplementedError
 
-    def predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính μ + b_u + b_i. Xem `Recommender.predict`."""
-        # TODO: vector hóa bằng indexing rồi np.clip.
-        raise NotImplementedError
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Tính μ + b_u + b_i; mô hình phân rã cộng thêm P Qᵀ vào giá trị này.
 
-    def raw_predict(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính μ + b_u + b_i, không clip.
-
-        Args:
-            users: Mảng chỉ số user.
-            items: Mảng chỉ số phim.
-
-        Returns:
-            Giá trị baseline; các mô hình phân rã cộng phần này với P Qᵀ rồi mới clip.
+        Xem `Recommender.predict_raw`.
         """
-        # TODO: như predict nhưng không clip.
+        # TODO: vector hóa bằng indexing.
         raise NotImplementedError
 
     def residual_matrix(self, ratings: sp.csr_matrix) -> sp.csr_matrix:
@@ -95,5 +83,5 @@ class BiasBaseline(Recommender):
         Returns:
             Ma trận CSR cùng cấu trúc thưa, giá trị là phần dư.
         """
-        # TODO: lấy tọa độ từ ratings.tocoo(), trừ raw_predict.
+        # TODO: lấy tọa độ từ ratings.tocoo(), trừ predict_raw.
         raise NotImplementedError
