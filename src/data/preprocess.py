@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 
 from src.config import load_config
+from src.data.load import load_ratings
+from src.data.sparse import *
 
 
 @dataclass
@@ -76,8 +78,21 @@ def split_ratings(
     Returns:
         Bộ ba (train, val, test).
     """
-    # TODO: hoán vị bằng np.random.default_rng(seed).permutation rồi cắt theo tỉ lệ.
-    raise NotImplementedError
+
+    if train_frac + val_frac > 1.0:
+        raise ValueError(f"Tổng train_frac ({train_frac}) và val_frac ({val_frac}) không được vượt quá 1.0!")
+    
+    shuffled_ratings = ratings.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+    row = len(ratings)
+    train_row, val_row = int(row * train_frac), int(row * val_frac)
+
+    train_df = shuffled_ratings.iloc[:train_row]
+    val_df = shuffled_ratings.iloc[train_row:train_row + val_row]
+    test_df = shuffled_ratings.iloc[train_row + val_row:]
+
+    return train_df, val_df, test_df
+
 
 
 def move_cold_start_to_train(
@@ -95,8 +110,30 @@ def move_cold_start_to_train(
     Returns:
         Bộ ba mới, trong đó mọi user/phim ở val và test đều có trong train.
     """
-    # TODO: lọc bằng isin; ghi lại số dòng đã chuyển để đưa vào báo cáo.
-    raise NotImplementedError
+
+    user_col = 'user_id'
+    item_col = 'movie_id'
+
+    val_mask =  val[user_col].isin(train[user_col]) & val[item_col].isin(train[item_col])
+    test_mask = test[user_col].isin(train[user_col]) & test[item_col].isin(train[item_col])
+
+    val_warm = val[val_mask]
+    val_cold = val[~val_mask]
+
+    test_warm = test[test_mask]
+    test_cold = test[~test_mask]
+
+    num_moved_val = len(val_cold)
+    num_moved_test = len(test_cold)
+
+    print(f"Số dòng được chuyển từ val về train là: {num_moved_val}")
+    print(f"Số dòng được chuyển từ test về train là: {num_moved_test}")
+
+    new_train = pd.concat([train, val_cold, test_cold], ignore_index=True)
+    new_val = val_warm.reset_index(drop=True)
+    new_test = test_warm.reset_index(drop=True)
+    
+    return new_train, new_val, new_test
 
 
 def build_id_maps(train: pd.DataFrame) -> IdMaps:
@@ -108,8 +145,21 @@ def build_id_maps(train: pd.DataFrame) -> IdMaps:
     Returns:
         `IdMaps`; chỉ số được sắp theo ID gốc tăng dần.
     """
-    # TODO: dùng np.unique để lấy ID, dict comprehension để tạo ánh xạ ngược.
-    raise NotImplementedError
+    user_col = 'user_id'
+    item_col = 'movie_id'
+
+    unique_users = np.unique(train[user_col])
+    unique_items = np.unique(train[item_col])
+
+    user_index = {int(uid): idx for idx, uid in enumerate(unique_users)}
+    movie_index = {int(iid): idx for idx, iid in enumerate(unique_items)}
+
+    return IdMaps(
+        user_ids=unique_users,
+        movie_ids=unique_items,
+        user_index=user_index,
+        movie_index=movie_index
+    )
 
 
 def encode_ids(ratings: pd.DataFrame, maps: IdMaps) -> pd.DataFrame:
@@ -122,8 +172,19 @@ def encode_ids(ratings: pd.DataFrame, maps: IdMaps) -> pd.DataFrame:
     Returns:
         DataFrame cột `user_idx`, `item_idx`, `rating`.
     """
-    # TODO: vector hóa bằng Series.map, không lặp từng dòng.
-    raise NotImplementedError
+    encoded_df = ratings.copy()
+
+    encoded_df['user_idx'] = encoded_df['user_id'].map(maps.user_index)
+    encoded_df['item_idx'] = encoded_df['movie_id'].map(maps.movie_index)
+
+    if encoded_df[['user_idx', 'item_idx']].isna().any(axis=None):
+        raise ValueError("Có user/phim không nằm trong ánh xạ ID")
+
+    result_df = encoded_df[['user_idx', 'item_idx', 'rating']].astype(
+        {'user_idx': 'int32', 'item_idx': 'int32'}
+    )
+
+    return result_df
 
 
 def preprocess(cfg: dict[str, Any]) -> SplitData:
@@ -135,8 +196,57 @@ def preprocess(cfg: dict[str, Any]) -> SplitData:
     Returns:
         `SplitData`.
     """
-    # TODO: load -> split -> move_cold_start -> maps -> encode -> lưu parquet/npz + CSR.
-    raise NotImplementedError
+    ratings = load_ratings(cfg["paths"]["raw_dir"])
+
+    train_frac = cfg["split"]["train"]
+    val_frac = cfg["split"]["val"]
+    seed = cfg["seed"]
+    
+    train_df, val_df, test_df = split_ratings(ratings, train_frac, val_frac, seed)
+
+    train_df, val_df, test_df = move_cold_start_to_train(train_df, val_df, test_df)
+
+    maps = build_id_maps(train_df)
+
+    train_encoded = encode_ids(train_df, maps)
+    val_encoded = encode_ids(val_df, maps)
+    test_encoded = encode_ids(test_df, maps)
+
+    processed_dir = cfg["paths"]["processed_dir"]
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    train_encoded.to_parquet(processed_dir / "train.parquet", index=False)
+    val_encoded.to_parquet(processed_dir / "val.parquet", index=False)
+    test_encoded.to_parquet(processed_dir / "test.parquet", index=False)
+    np.savez(processed_dir / "id_maps.npz", user_ids=maps.user_ids, movie_ids=maps.movie_ids)
+
+    shape = (len(maps.user_ids), len(maps.movie_ids))
+
+    train_csr = build_csr(
+        users= train_encoded['user_idx'].to_numpy(),
+        items= train_encoded['item_idx'].to_numpy(),
+        values= train_encoded['rating'].to_numpy(),
+        shape=shape
+    )
+
+    save_csr(processed_dir / "train_csr.npz", train_csr)
+
+    dense_bytes = dense_memory_bytes(shape)
+    csr_bytes = csr_memory_bytes(train_csr)
+
+    print(f"Dense memory: {dense_bytes} bytes")
+    print(f"CSR memory: {csr_bytes} bytes")
+    print(f"Ratio (CSR/Dense): {csr_bytes / dense_bytes:.4f}")
+
+    return SplitData(
+        train= train_encoded,
+        val= val_encoded,
+        test= test_encoded,
+        maps= maps,
+        shape= shape,
+    )
+
+
 
 
 def load_processed(cfg: dict[str, Any]) -> SplitData:
@@ -148,8 +258,30 @@ def load_processed(cfg: dict[str, Any]) -> SplitData:
     Returns:
         `SplitData`, giống hệt kết quả `preprocess`.
     """
-    # TODO: đọc các file do preprocess ghi ra.
-    raise NotImplementedError
+    processed_dir = cfg["paths"]["processed_dir"]
+
+    train_df = pd.read_parquet(processed_dir / "train.parquet")
+    val_df = pd.read_parquet(processed_dir / "val.parquet")
+    test_df = pd.read_parquet(processed_dir / "test.parquet")
+
+    data = np.load(processed_dir / "id_maps.npz")
+    user_ids = data["user_ids"]
+    movie_ids = data["movie_ids"]
+
+    maps = IdMaps(
+        user_ids=user_ids,
+        movie_ids=movie_ids,
+        user_index={int(uid): idx for idx, uid in enumerate(user_ids)},
+        movie_index={int(mid): idx for idx, mid in enumerate(movie_ids)},
+    )
+
+    return SplitData(
+        train=train_df,
+        val=val_df,
+        test=test_df,
+        maps=maps,
+        shape=(len(user_ids), len(movie_ids)),
+    )
 
 
 if __name__ == "__main__":
