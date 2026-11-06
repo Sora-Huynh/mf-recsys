@@ -81,13 +81,164 @@ def test_als_recovers_missing_entries(
 
 
 def test_sgd_gradient_matches_numeric() -> None:
-    """Gradient tay phải khớp sai phân trung tâm (Ch.5)."""
-    # TODO: so sánh batch_gradients với (L(x+h) - L(x-h)) / 2h trên vài phần tử.
-    raise NotImplementedError
+    from src.models.sgd import batch_gradients
+
+    rng = np.random.default_rng(42)
+
+    # Ma trận nhỏ: 3 user, 4 phim, mỗi đối tượng có 2 đặc trưng.
+    P = rng.normal(size=(3, 2))
+    Q = rng.normal(size=(4, 2))
+
+    # Cố ý cho user và phim lặp để kiểm tra cộng dồn.
+    users = np.array([0, 0, 1, 2])
+    items = np.array([1, 2, 1, 3])
+    residuals = np.array([0.5, -0.3, 1.2, 0.7])
+    reg = 0.02
+
+    # Loss phải khớp quy ước tổng theo batch của batch_gradients.
+    def loss():
+        p = P[users]
+        q = Q[items]
+        errors = residuals - np.sum(p * q, axis=1)
+
+        squared_error = np.sum(errors ** 2)
+        penalty = reg * (np.sum(p ** 2) + np.sum(q ** 2))
+
+        return 0.5 * (squared_error + penalty)
+
+    # Gradient tính bằng công thức.
+    grad_P, grad_Q = batch_gradients(
+        P, Q, users, items, residuals, reg
+    )
+
+    # Gradient tính bằng sai phân trung tâm.
+    h = 1e-6
+
+    for param, analytic_grad in [(P, grad_P), (Q, grad_Q)]:
+        numeric_grad = np.zeros_like(param)
+
+        for index in np.ndindex(param.shape):
+            original = param[index]
+
+            param[index] = original + h
+            loss_plus = loss()
+
+            param[index] = original - h
+            loss_minus = loss()
+
+            param[index] = original
+
+            numeric_grad[index] = (loss_plus - loss_minus) / (2 * h)
+
+        np.testing.assert_allclose(
+            analytic_grad,
+            numeric_grad,
+            rtol=1e-5,
+            atol=1e-7,
+        )
 
 
 @pytest.mark.parametrize("optimizer", ["sgd", "momentum", "adam"])
-def test_sgd_loss_decreases(observed: sp.csr_matrix, optimizer: str) -> None:
-    """RMSE train cuối phải thấp hơn lúc đầu với cả ba optimizer."""
-    # TODO: đọc cột train_rmse trong model.log.
-    raise NotImplementedError
+def test_sgd_loss_decreases(optimizer, monkeypatch):
+    from src.models.sgd import SGDRecommender
+    from src.evaluation.convergence import ConvergenceLog
+
+    # Baseline đơn giản: luôn dự đoán 3 điểm.
+    class ConstantBaseline:
+        rating_min = 1.0
+        rating_max = 5.0
+
+        def predict_raw(self, users, items):
+            return np.full(np.asarray(users).shape, 3.0)
+
+    # Thay hàm ghi log chỉ trong test này.
+    def temporary_record(
+        self, epoch, elapsed_s, train_rmse,
+        val_rmse=None, objective=None
+    ):
+        self.rows.append({
+            "epoch": epoch,
+            "elapsed_s": elapsed_s,
+            "train_rmse": train_rmse,
+            "val_rmse": val_rmse,
+            "objective": objective,
+        })
+
+    monkeypatch.setattr(
+        ConvergenceLog, "record", temporary_record
+    )
+
+    # Dữ liệu nhỏ có quy luật, điểm đều nằm trong khoảng 1–5.
+    user_factors = np.array([-1.0, -0.5, 0.5, 1.0])
+    item_factors = np.array([-1.0, 0.5, 1.0])
+
+    ratings = 3.0 + np.outer(user_factors, item_factors)
+    train = sp.csr_matrix(ratings)
+
+    learning_rates = {
+        "sgd": 0.05,
+        "momentum": 0.02,
+        "adam": 0.02,
+    }
+
+    model = SGDRecommender(
+        k=2,
+        reg=0.001,
+        lr=learning_rates[optimizer],
+        n_epochs=100,
+        batch_size=4,
+        baseline=ConstantBaseline(),
+        optimizer=optimizer,
+        seed=42,
+    )
+
+    model.fit(train)
+
+    initial_rmse = model.log.rows[0]["train_rmse"]
+    final_rmse = model.log.rows[-1]["train_rmse"]
+
+    print(
+        f"\n{optimizer}: "
+        f"RMSE ban đầu = {initial_rmse:.4f}, "
+        f"RMSE cuối = {final_rmse:.4f}"
+    )
+
+    assert np.isfinite(final_rmse)
+    assert final_rmse < initial_rmse
+
+@pytest.mark.parametrize(
+    "optimizer, expected",
+    [
+        ("sgd", 0.6),
+        ("momentum", 0.42),
+        ("adam", 0.8),
+    ],
+)
+def test_optimizer_two_steps(optimizer, expected):
+    from src.models.sgd import OptimizerState, apply_update
+
+    param = np.array([[1.0]])
+    grad = np.array([[2.0]])
+
+    state = OptimizerState(
+        velocity=np.zeros_like(param),
+        second_moment=np.zeros_like(param),
+    )
+
+    # Cập nhật hai lần để kiểm tra cả trạng thái tích lũy.
+    for _ in range(2):
+        apply_update(
+            param=param,
+            grad=grad,
+            state=state,
+            optimizer=optimizer,
+            lr=0.1,
+            hyper={},
+        )
+
+    np.testing.assert_allclose(
+        param,
+        [[expected]],
+        rtol=1e-6,
+        atol=1e-8,
+    )
