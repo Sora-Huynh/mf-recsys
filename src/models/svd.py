@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import scipy.sparse as sp
+from scipy.sparse.linalg import svds  # Bổ sung import quan trọng để không bị lỗi
 
 from src.models.base import Recommender
 from src.models.baseline import BiasBaseline
@@ -35,13 +36,58 @@ class TruncatedSVDRecommender(Recommender):
         super().__init__(baseline.rating_min, baseline.rating_max)
         self.k = k
         self.baseline = baseline
+        self.u_: np.ndarray | None = None
+        self.s_: np.ndarray | None = None
+        self.vt_: np.ndarray | None = None
+        self.singular_values_: np.ndarray | None = None
 
     def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
         """Phân rã SVD phần dư. Xem `Recommender._fit`."""
-        # TODO: scipy.sparse.linalg.svds(residual, k). Hàm trả σ tăng dần, cần đảo thứ tự.
-        raise NotImplementedError
+        # 1. Luôn fit lại baseline, không dùng lệnh `if` để tránh dính dữ liệu cũ
+        self.baseline.fit(train, val)
+
+        # 2. Tính ma trận phần dư độc lập (an toàn tuyệt đối ngay cả khi bạn C chưa code)
+        if hasattr(self.baseline, 'residual_matrix'):
+            residual = self.baseline.residual_matrix(train)
+        else:
+            users, items = train.nonzero()
+            base_preds = self.baseline.predict_raw(users, items)
+            residual = train.copy()
+            residual.data = residual.data - base_preds  # Thực tế - Baseline
+
+        m, n = residual.shape
+        min_dim = min(m, n)
+        k_target = min(self.k, min_dim)
+
+        # 3. Tiến hành phân rã ma trận
+        if min_dim <= k_target + 1 or residual.nnz == m * n:
+            dense_res = residual.toarray() if sp.issparse(residual) else np.asarray(residual)
+            u, s, vt = np.linalg.svd(dense_res, full_matrices=False)
+            u = u[:, :k_target]
+            s = s[:k_target]
+            vt = vt[:k_target, :]
+        else:
+            # Dùng trực tiếp hàm svds đã import
+            u, s, vt = svds(residual, k=k_target)
+            idx = np.argsort(s)[::-1]
+            u = u[:, idx]
+            s = s[idx]
+            vt = vt[idx, :]
+
+        self.u_ = u
+        self.s_ = s
+        self.vt_ = vt
+        self.singular_values_ = s
 
     def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
         """Tính baseline + Σ_j u_j σ_j v_j. Xem `Recommender.predict_raw`."""
-        # TODO: einsum trên hàng của U và V, không dựng lại ma trận đầy đủ.
-        raise NotImplementedError
+        users = np.asarray(users)
+        items = np.asarray(items)
+        base_pred = self.baseline.predict_raw(users, items)
+
+        if self.u_ is None or self.s_ is None or self.vt_ is None or self.k == 0:
+            return base_pred
+
+        # Tối ưu: vt_.T[items] giúp cắt dòng ma trận nhanh hơn đáng kể
+        svd_pred = np.sum(self.u_[users] * self.s_ * self.vt_.T[items], axis=1)
+        return base_pred + svd_pred
