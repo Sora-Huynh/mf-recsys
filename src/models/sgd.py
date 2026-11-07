@@ -66,8 +66,29 @@ def batch_gradients(
     Returns:
         Cặp gradient (grad_P, grad_Q), cùng kích thước với P, Q.
     """
-    # TODO: tính e, gom gradient bằng np.add.at (hoặc numba nếu chậm).
-    raise NotImplementedError
+        # Lấy đặc trưng của các user và phim xuất hiện trong batch.
+    p_batch = P[users]
+    q_batch = Q[items]
+
+    # Dự đoán phần dư: tích vô hướng của từng cặp user–phim.
+    predictions = np.sum(p_batch * q_batch, axis=1)
+
+    # Sai số giữa phần dư thật và phần dư dự đoán.
+    errors = residuals - predictions
+
+    # Gradient của từng lượt đánh giá.
+    grad_p_batch = -errors[:, None] * q_batch + reg * p_batch
+    grad_q_batch = -errors[:, None] * p_batch + reg * q_batch
+
+    # Tạo nơi chứa gradient cho toàn bộ P và Q.
+    grad_P = np.zeros_like(P)
+    grad_Q = np.zeros_like(Q)
+
+    # Cộng dồn khi user hoặc phim xuất hiện nhiều lần.
+    np.add.at(grad_P, users, grad_p_batch)
+    np.add.at(grad_Q, items, grad_q_batch)
+
+    return grad_P, grad_Q
 
 
 def apply_update(
@@ -88,9 +109,40 @@ def apply_update(
         lr: Learning rate.
         hyper: Các hệ số `momentum_beta`, `adam_beta1`, `adam_beta2`, `adam_eps`.
     """
-    # TODO: cài ba công thức cập nhật theo Ch.6.
-    raise NotImplementedError
+    if optimizer == "sgd":
+        param -= lr * grad
 
+    elif optimizer == "momentum":
+        beta = hyper.get("momentum_beta", 0.9)
+
+        state.velocity *= beta
+        state.velocity += grad
+
+        param -= lr * state.velocity
+
+    elif optimizer == "adam":
+        beta1 = hyper.get("adam_beta1", 0.9)
+        beta2 = hyper.get("adam_beta2", 0.999)
+        eps = hyper.get("adam_eps", 1e-8)
+
+        state.step += 1
+
+        # Trung bình trượt của gradient.
+        state.velocity *= beta1
+        state.velocity += (1 - beta1) * grad
+
+        # Trung bình trượt của bình phương gradient.
+        state.second_moment *= beta2
+        state.second_moment += (1 - beta2) * grad ** 2
+
+        # Hiệu chỉnh do trạng thái ban đầu bằng 0.
+        m_hat = state.velocity / (1 - beta1 ** state.step)
+        v_hat = state.second_moment / (1 - beta2 ** state.step)
+
+        param -= lr * m_hat / (np.sqrt(v_hat) + eps)
+
+    else:
+        raise ValueError(f"Optimizer không hợp lệ: {optimizer}")
 
 class SGDRecommender(Recommender):
     """Mô hình R ≈ baseline + P Qᵀ, huấn luyện bằng mini-batch."""
@@ -136,11 +188,118 @@ class SGDRecommender(Recommender):
         self.log = ConvergenceLog()
 
     def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
-        """Lặp theo epoch và mini-batch, ghi `self.log`. Xem `Recommender._fit`."""
-        # TODO: xáo dữ liệu mỗi epoch; batch_gradients + apply_update; không tính giờ phần đánh giá.
-        raise NotImplementedError
+        from time import perf_counter
+
+        rng = np.random.default_rng(self.seed)
+
+        # 1. Khởi tạo đặc trưng của user và phim.
+        n_users, n_items = train.shape
+
+        self.P = rng.normal(
+            0.0, self.init_std, size=(n_users, self.k)
+        )
+        self.Q = rng.normal(
+            0.0, self.init_std, size=(n_items, self.k)
+        )
+
+        # 2. Mỗi ma trận có trạng thái optimizer riêng.
+        state_P = OptimizerState(
+            velocity=np.zeros_like(self.P),
+            second_moment=np.zeros_like(self.P),
+        )
+        state_Q = OptimizerState(
+            velocity=np.zeros_like(self.Q),
+            second_moment=np.zeros_like(self.Q),
+        )
+
+        # 3. Lấy những lượt đánh giá có thật trong train.
+        observed = train.tocoo()
+        users = observed.row
+        items = observed.col
+        ratings = observed.data
+
+        if len(ratings) == 0:
+            raise ValueError("Tập train không có đánh giá.")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size phải lớn hơn 0.")
+
+        # Baseline được học trước và giữ cố định.
+        residuals = ratings - self.baseline.predict_raw(users, items)
+
+        val_observed = None if val is None else val.tocoo()
+
+        # 4. Hàm ghi sai số; không tính thời gian này vào huấn luyện.
+        self.log = ConvergenceLog()
+
+        def record_metrics(epoch, elapsed):
+            train_predictions = self.predict(users, items)
+            train_rmse = float(
+                np.sqrt(np.mean((ratings - train_predictions) ** 2))
+            )
+
+            val_rmse = None
+            if val_observed is not None and val_observed.nnz > 0:
+                val_predictions = self.predict(
+                    val_observed.row, val_observed.col
+                )
+                val_rmse = float(
+                    np.sqrt(
+                        np.mean(
+                            (val_observed.data - val_predictions) ** 2
+                        )
+                    )
+                )
+
+            self.log.record(
+                epoch=epoch,
+                elapsed_s=elapsed,
+                train_rmse=train_rmse,
+                val_rmse=val_rmse,
+            )
+
+        elapsed = 0.0
+
+        # Epoch 0: đo sai số trước khi học để có mốc so sánh.
+        record_metrics(0, elapsed)
+
+        # 5. Huấn luyện qua nhiều epoch.
+        for epoch in range(1, self.n_epochs + 1):
+            start = perf_counter()
+            order = rng.permutation(len(ratings))
+
+            for offset in range(0, len(order), self.batch_size):
+                batch = order[offset:offset + self.batch_size]
+
+                grad_P, grad_Q = batch_gradients(
+                    self.P,
+                    self.Q,
+                    users[batch],
+                    items[batch],
+                    residuals[batch],
+                    self.reg,
+                )
+
+                apply_update(
+                    self.P, grad_P, state_P,
+                    self.optimizer, self.lr, self.hyper,
+                )
+                apply_update(
+                    self.Q, grad_Q, state_Q,
+                    self.optimizer, self.lr, self.hyper,
+                )
+
+            elapsed += perf_counter() - start
+            record_metrics(epoch, elapsed)
 
     def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
-        """Tính baseline + p_uᵀq_i. Xem `Recommender.predict_raw`."""
-        # TODO: baseline.predict_raw + einsum trên P[users], Q[items].
-        raise NotImplementedError
+        # Điểm dự đoán từ baseline: trung bình + bias user/phim.
+        baseline_scores = self.baseline.predict_raw(users, items)
+
+        # Đặc trưng của các user và phim cần dự đoán.
+        p = self.P[users]
+        q = self.Q[items]
+
+        # Độ phù hợp riêng của từng cặp user–phim.
+        interaction = np.sum(p * q, axis=1)
+
+        return baseline_scores + interaction
