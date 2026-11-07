@@ -4,7 +4,6 @@ Mục đích: đặt mốc mà các mô hình phân rã phải vượt. Liên qu
 
 Chạy: python -m experiments.run_baseline
 """
-
 from __future__ import annotations
 
 import argparse
@@ -14,7 +13,8 @@ from typing import Any
 import pandas as pd
 
 from src.config import load_config, set_seed
-from src.data.load import load_processed_data
+from src.data.preprocess import load_processed as load_processed_data
+from src.data.sparse import build_csr
 from src.models.baseline import BiasBaseline, GlobalMean
 
 
@@ -36,8 +36,25 @@ def run(cfg: dict[str, Any]) -> None:
         cfg: Cấu hình từ `load_config`.
     """
     # 1. Load dữ liệu đã qua tiền xử lý (dạng CSR matrix)
-    train, val, test = load_processed_data()
-
+    data = load_processed_data(cfg)
+    train = build_csr(
+        users=data.train["user_idx"].to_numpy(),
+        items=data.train["item_idx"].to_numpy(),
+        values=data.train["rating"].to_numpy(),
+        shape=data.shape,
+    )
+    val = build_csr(
+        users=data.val["user_idx"].to_numpy(),
+        items=data.val["item_idx"].to_numpy(),
+        values=data.val["rating"].to_numpy(),
+        shape=data.shape,
+    )
+    test = build_csr(
+        users=data.test["user_idx"].to_numpy(),
+        items=data.test["item_idx"].to_numpy(),
+        values=data.test["rating"].to_numpy(),
+        shape=data.shape,
+    )
     baseline_cfg = cfg.get("baseline", {})
     reg = baseline_cfg.get("reg", 10.0)
 
