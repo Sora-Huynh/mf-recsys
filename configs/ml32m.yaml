@@ -1,0 +1,38 @@
+# Cấu hình cho MovieLens-32M, dữ liệu đặt ở thư mục cha của repo (../ml).
+# Giữ riêng với default.yaml: cả nhóm vẫn dùng ML-1M, và kết quả ở đây không ghi đè lên kết
+# quả ML-1M. Thư mục con ml32m/ nằm trong các đường dẫn đã được .gitignore.
+#
+# Chuẩn bị: python -m experiments.prepare_ml32m
+# Chạy ALS: python -m experiments.run_als --config configs/ml32m.yaml
+
+seed: 42
+
+paths:
+  raw_dir: ../ml
+  processed_dir: data/processed/ml32m
+  figures_dir: results/figures/ml32m
+  tables_dir: results/tables/ml32m
+  models_dir: results/models/ml32m
+
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+
+ratings:
+  min: 0.5          # ML-32M có điểm 0,5; ML-1M thấp nhất là 1
+  max: 5.0
+
+baseline:
+  reg: 10.0
+
+als:
+  k: 20
+  reg: 10.0
+  n_epochs: 20
+  init_std: 0.1
+  solver: cholesky
+
+conditioning:
+  reg_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+  n_users: 200

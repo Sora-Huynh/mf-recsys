@@ -44,8 +44,15 @@ class ConvergenceLog:
             val_rmse: RMSE trên val.
             objective: Giá trị hàm mục tiêu.
         """
-        # TODO: thêm dict vào self.rows.
-        raise NotImplementedError
+        self.rows.append(
+            {
+                "epoch": epoch,
+                "elapsed_s": elapsed_s,
+                "train_rmse": train_rmse,
+                "val_rmse": val_rmse,
+                "objective": objective,
+            }
+        )
 
     def to_frame(self) -> pd.DataFrame:
         """Đổi nhật ký thành DataFrame.
@@ -53,8 +60,7 @@ class ConvergenceLog:
         Returns:
             DataFrame mỗi dòng một vòng lặp.
         """
-        # TODO: pd.DataFrame(self.rows).
-        raise NotImplementedError
+        return pd.DataFrame(self.rows)
 
     def save(self, path: Path) -> None:
         """Lưu nhật ký ra CSV.
@@ -62,5 +68,6 @@ class ConvergenceLog:
         Args:
             path: Đường dẫn file, thường trong `results/tables/`.
         """
-        # TODO: to_frame().to_csv(path, index=False).
-        raise NotImplementedError
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.to_frame().to_csv(path, index=False)

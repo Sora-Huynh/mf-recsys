@@ -41,6 +41,55 @@ def observed(low_rank_matrix: np.ndarray) -> sp.csr_matrix:
     return sp.csr_matrix(low_rank_matrix * mask)
 
 
+class _ZeroBaseline:
+    """Baseline luôn dự đoán 0, để test ALS không phụ thuộc `BiasBaseline`."""
+
+    rating_min = -100.0
+    rating_max = 100.0
+
+    def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
+        """Trả về mảng 0 cùng kích thước `users`."""
+        return np.zeros(len(users))
+
+    def residual_matrix(self, ratings: sp.csr_matrix) -> sp.csr_matrix:
+        """Phần dư chính là điểm vì baseline bằng 0."""
+        return ratings.copy()
+
+
+class _MemoryLog:
+    """Nhật ký tối giản, để test ALS không phụ thuộc `ConvergenceLog`."""
+
+    def __init__(self) -> None:
+        """Khởi tạo danh sách rỗng."""
+        self.rows: list[dict[str, float | None]] = []
+
+    def record(self, **row: float | None) -> None:
+        """Lưu một dòng nhật ký."""
+        self.rows.append(row)
+
+
+def _fit_als(train: sp.csr_matrix, k: int, reg: float, n_epochs: int):
+    """Fit ALS với baseline 0 và nhật ký tối giản.
+
+    Args:
+        train: Ma trận điểm.
+        k: Số nhân tố ẩn.
+        reg: Hệ số λ.
+        n_epochs: Số vòng lặp.
+
+    Returns:
+        Mô hình ALS đã fit.
+    """
+    from src.models import als
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(als, "ConvergenceLog", _MemoryLog)
+        model = als.ALSRecommender(
+            k=k, reg=reg, n_epochs=n_epochs, baseline=_ZeroBaseline(), seed=0
+        )
+        return model.fit(train)
+
+
 def test_bias_baseline_recovers_known_biases() -> None:
     """Với r_ui = μ + b_u + b_i đầy đủ và reg = 0, RMSE phải gần 0."""
     # TODO: tạo ma trận cộng tính, fit BiasBaseline(reg=0.0).
@@ -49,14 +98,32 @@ def test_bias_baseline_recovers_known_biases() -> None:
 
 def test_cholesky_matches_numpy() -> None:
     """`cholesky_solve` phải khớp `np.linalg.solve` trên hệ SPD ngẫu nhiên."""
-    # TODO: A = BᵀB + I; so sánh nghiệm với sai số nhỏ.
-    raise NotImplementedError
+    from src.solvers.linear import cholesky_factor, cholesky_solve
+
+    rng = np.random.default_rng(0)
+    for k in (1, 2, 5, 20):
+        B = rng.normal(size=(k + 3, k))
+        A = B.T @ B + np.eye(k)
+        b = rng.normal(size=k)
+        np.testing.assert_allclose(cholesky_solve(A, b), np.linalg.solve(A, b), atol=1e-10)
+        np.testing.assert_allclose(cholesky_factor(A), np.linalg.cholesky(A), atol=1e-10)
+
+    # Ví dụ 6 của Ch.2, đáp án tính tay trong giáo trình.
+    worked = np.array([[4.0, 2.0, 2.0], [2.0, 5.0, 3.0], [2.0, 3.0, 6.0]])
+    expected = np.array([[2.0, 0.0, 0.0], [1.0, 2.0, 0.0], [1.0, 1.0, 2.0]])
+    np.testing.assert_allclose(cholesky_factor(worked), expected)
 
 
 def test_cholesky_rejects_non_spd() -> None:
     """`cholesky_factor` phải báo lỗi với ma trận không xác định dương."""
-    # TODO: dùng np.diag([1.0, -1.0]), kiểm tra LinAlgError.
-    raise NotImplementedError
+    from src.solvers.linear import cholesky_factor
+
+    with pytest.raises(np.linalg.LinAlgError):
+        cholesky_factor(np.diag([1.0, -1.0]))
+    # Ma trận suy biến, cùng dạng Ví dụ 7 của Ch.3. Dùng số 1 để trụ thứ hai bằng đúng 0,
+    # không phụ thuộc sai số làm tròn của căn bậc hai.
+    with pytest.raises(np.linalg.LinAlgError):
+        cholesky_factor(np.array([[1.0, 1.0], [1.0, 1.0]]))
 
 
 def test_svd_recovers_full_low_rank(low_rank_matrix: np.ndarray) -> None:
@@ -67,8 +134,16 @@ def test_svd_recovers_full_low_rank(low_rank_matrix: np.ndarray) -> None:
 
 def test_als_objective_never_increases(observed: sp.csr_matrix) -> None:
     """Hàm mục tiêu ALS không được tăng qua các vòng (tính chất của bước nghiệm đúng)."""
-    # TODO: đọc cột objective trong model.log.
-    raise NotImplementedError
+    from src.models.als import objective
+
+    model = _fit_als(observed, k=3, reg=1.0, n_epochs=30)
+    values = [row["objective"] for row in model.log.rows]
+    assert len(values) == 30
+    assert all(after <= before * (1 + 1e-10) for before, after in zip(values, values[1:]))
+    assert values[-1] < values[0]
+    # Giá trị đã ghi phải đúng bằng công thức đầu file.
+    expected = objective(model.P, model.Q, observed, 1.0)
+    assert values[-1] == pytest.approx(expected)
 
 
 def test_als_recovers_missing_entries(
@@ -76,8 +151,45 @@ def test_als_recovers_missing_entries(
     observed: sp.csr_matrix,
 ) -> None:
     """ALS với k = 3, λ nhỏ phải dự đoán đúng các ô bị ẩn."""
-    # TODO: tính RMSE trên phần bù của observed.
-    raise NotImplementedError
+    model = _fit_als(observed, k=3, reg=1e-6, n_epochs=100)
+    hidden = observed.toarray() == 0
+    users, items = np.nonzero(hidden)
+    predicted = model.predict(users, items)
+    error = np.sqrt(np.mean((predicted - low_rank_matrix[users, items]) ** 2))
+    assert error < 1e-2
+
+
+def test_als_needs_positive_reg_when_user_has_few_ratings() -> None:
+    """User có ít đánh giá hơn k: hệ suy biến khi λ = 0, giải được khi λ > 0 (Ch.3)."""
+    from src.models.als import update_factors
+
+    fixed = np.random.default_rng(0).normal(size=(5, 3))
+    # Hàng rỗng cho A = 0 nên trụ bằng đúng 0. Với 1 đánh giá, trụ phụ thuộc làm tròn và
+    # có thể là số dương rất nhỏ, nên không dùng để kiểm tra lỗi.
+    with pytest.raises(np.linalg.LinAlgError):
+        update_factors(fixed, sp.csr_matrix((1, 5)), reg=0.0)
+
+    one_rating = sp.csr_matrix(np.array([[2.0, 0.0, 0.0, 0.0, 0.0]]))
+    solution = update_factors(fixed, one_rating, reg=1.0)
+    q = fixed[0]
+    expected = np.linalg.solve(np.outer(q, q) + np.eye(3), 2.0 * q)
+    np.testing.assert_allclose(solution[0], expected)
+
+
+def test_als_results_do_not_depend_on_thread_count(observed: sp.csr_matrix) -> None:
+    """Mỗi hệ giải độc lập nên số luồng không được làm đổi kết quả."""
+    from numba import get_num_threads, set_num_threads
+
+    original = get_num_threads()
+    try:
+        set_num_threads(1)
+        single = _fit_als(observed, k=3, reg=1.0, n_epochs=5)
+        set_num_threads(original)
+        many = _fit_als(observed, k=3, reg=1.0, n_epochs=5)
+    finally:
+        set_num_threads(original)
+    np.testing.assert_array_equal(single.P, many.P)
+    np.testing.assert_array_equal(single.Q, many.Q)
 
 
 def test_sgd_gradient_matches_numeric() -> None:
