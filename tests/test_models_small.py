@@ -43,8 +43,86 @@ def observed(low_rank_matrix: np.ndarray) -> sp.csr_matrix:
 
 def test_bias_baseline_recovers_known_biases() -> None:
     """Với r_ui = μ + b_u + b_i đầy đủ và reg = 0, RMSE phải gần 0."""
-    # TODO: tạo ma trận cộng tính, fit BiasBaseline(reg=0.0).
-    raise NotImplementedError
+    from src.models.baseline import BiasBaseline
+
+    # Bias có trung bình 0 nên μ, b_u, b_i được khôi phục đúng từng giá trị
+    mu0 = 3.5
+    bu = np.array([0.5, -0.25, -0.25, 0.0])
+    bi = np.array([1.0, -0.5, -0.5])
+    train = sp.csr_matrix(mu0 + bu[:, None] + bi[None, :])
+
+    model = BiasBaseline(reg=0.0).fit(train)
+
+    assert model.mu == pytest.approx(mu0)
+    np.testing.assert_allclose(model.b_u, bu, atol=1e-12)
+    np.testing.assert_allclose(model.b_i, bi, atol=1e-12)
+    users, items = np.meshgrid(np.arange(4), np.arange(3), indexing="ij")
+    pred = model.predict_raw(users.ravel(), items.ravel())
+    assert np.sqrt(np.mean((pred - train.toarray().ravel()) ** 2)) < 1e-12
+
+
+def test_bias_baseline_matches_loop_formula() -> None:
+    """Với reg = 10 trên ma trận thưa, kết quả khớp công thức viết bằng vòng lặp."""
+    from src.models.baseline import BiasBaseline
+
+    rng = np.random.default_rng(0)
+    dense = np.where(rng.random((20, 15)) < 0.5, rng.integers(1, 6, (20, 15)), 0).astype(float)
+    reg = 10.0
+    model = BiasBaseline(reg=reg).fit(sp.csr_matrix(dense))
+
+    mu = dense[dense > 0].mean()
+    b_i = np.zeros(15)
+    for i in range(15):
+        mask = dense[:, i] > 0
+        b_i[i] = (dense[mask, i] - mu).sum() / (mask.sum() + reg)
+    b_u = np.zeros(20)
+    for u in range(20):
+        mask = dense[u] > 0
+        b_u[u] = (dense[u, mask] - mu - b_i[mask]).sum() / (mask.sum() + reg)
+
+    assert model.mu == pytest.approx(mu)
+    np.testing.assert_allclose(model.b_i, b_i)
+    np.testing.assert_allclose(model.b_u, b_u)
+
+
+def test_bias_baseline_zero_reg_has_no_nan() -> None:
+    """Phim/user không có đánh giá và reg = 0 phải cho bias 0, không phải NaN."""
+    from src.models.baseline import BiasBaseline
+
+    train = sp.csr_matrix(np.array([[5.0, 0.0, 3.0], [4.0, 0.0, 2.0], [0.0, 0.0, 0.0]]))
+    model = BiasBaseline(reg=0.0).fit(train)
+
+    assert np.isfinite(model.b_i).all() and np.isfinite(model.b_u).all()
+    assert model.b_i[1] == 0.0 and model.b_u[2] == 0.0
+
+
+def test_bias_baseline_residual_matrix() -> None:
+    """`residual_matrix` giữ cấu trúc thưa và cộng lại phần dự đoán thì ra điểm gốc."""
+    from src.models.baseline import BiasBaseline
+
+    rng = np.random.default_rng(2)
+    dense = np.where(rng.random((12, 9)) < 0.5, rng.integers(1, 6, (12, 9)), 0).astype(float)
+    train = sp.csr_matrix(dense)
+    model = BiasBaseline(reg=10.0).fit(train)
+
+    res = model.residual_matrix(train)
+    assert sp.isspmatrix_csr(res) and res.nnz == train.nnz
+    coo = train.tocoo()
+    back = np.asarray(res[coo.row, coo.col]).ravel() + model.predict_raw(coo.row, coo.col)
+    np.testing.assert_allclose(back, coo.data)
+
+
+def test_global_mean_predicts_mu_and_clips() -> None:
+    """GlobalMean dự đoán μ cho mọi ô và có clip về thang điểm."""
+    from src.models.baseline import GlobalMean
+
+    train = sp.csr_matrix(np.array([[5.0, 3.0], [4.0, 0.0]]))
+    model = GlobalMean().fit(train)
+
+    assert model.mu == pytest.approx(4.0)
+    np.testing.assert_allclose(model.predict(np.array([0, 1]), np.array([0, 1])), 4.0)
+    clipped = GlobalMean(rating_max=3.5).fit(train)
+    assert clipped.predict(np.array([0]), np.array([0]))[0] == 3.5
 
 
 def test_cholesky_matches_numpy() -> None:
