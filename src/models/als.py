@@ -14,9 +14,8 @@ trong đó Q_u CHỈ gồm các hàng của phim user u đã đánh giá, không
 Vì sao cần λ > 0: user ít đánh giá (n_u < k) làm Q_uᵀQ_u suy biến. Sau khi chia tập ML-1M,
 401 user có dưới 20 đánh giá trong train (ít nhất là 10), nên với k = 20 hệ suy biến thật.
 
-Vòng lặp theo user/phim và theo đánh giá nằm trong hàm numba song song, nhờ đó ALS chạy
-được cả trên MovieLens-32M (khoảng 285.000 hệ mỗi vòng). Mỗi hàng được giải độc lập nên
-kết quả không phụ thuộc số luồng.
+Vòng lặp theo user/phim và theo đánh giá nằm trong hàm numba song song. Mỗi hàng được
+giải độc lập nên kết quả không phụ thuộc số luồng.
 
 Liên quan Ch.2 (Cholesky, CSR) và Ch.3 (Ridge).
 """

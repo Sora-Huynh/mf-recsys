@@ -420,8 +420,8 @@ for epoch in range(1, n_epochs + 1):
         khoảng 40 lần một vòng ALS. Code gọi trước một hệ $1 \times 1$ để biên dịch xong rồi mới bắt đầu
         tính giờ, để so sánh thời gian với SGD được công bằng.
   \item \textbf{Không dựng ma trận trung gian lớn.} Dự đoán $p_u^\top q_i$ được tính từng cặp trong
-        numba, thay vì dựng $P[\text{users}]$ và $Q[\text{items}]$. Trên ML-32M, hai mảng đó cần khoảng
-        8 GB bộ nhớ.
+        numba, thay vì dựng $P[\text{users}]$ và $Q[\text{items}]$: hai mảng này có số hàng bằng số điểm
+        train, nên tốn bộ nhớ tỉ lệ với dữ liệu.
   \item \textbf{Kiểm thử.} Có 7 test cho phần này: Cholesky khớp \texttt{numpy}; báo lỗi với ma trận
         không xác định dương; khôi phục đúng ma trận hạng 3; $J$ không tăng qua các vòng; dự đoán đúng
         các ô bị ẩn; hệ suy biến khi $\lambda = 0$ nhưng giải được khi $\lambda > 0$; và kết quả không
@@ -506,28 +506,7 @@ Nhưng với \emph{Star Wars: Episode I} (điểm thật 4), ALS đoán 2,79, t�
 cho vấn đề \emph{khởi đầu lạnh} (cold start): dữ liệu càng ít, cá nhân hóa càng thiếu tin cậy, và $\lambda$
 là thứ giữ cho dự đoán không đi quá xa baseline.
 
-\subsubsection{Khả năng mở rộng}
-
-Cùng code và cùng tham số được chạy thêm trên MovieLens-32M (Bảng~\ref{tab:als-scale}). Số điểm train tăng
-khoảng 32 lần, thời gian tăng khoảng 49 lần, tức chi phí vẫn tăng cùng bậc với số điểm. Hai bộ dữ
-liệu có thang điểm và tập người dùng khác nhau, nên không so sánh trực tiếp RMSE giữa chúng.
-
-\begin{table}[H]
-  \centering
-  \caption{ALS trên hai bộ dữ liệu, $k = 20$, $\lambda = 10$, 20 vòng.}
-  \label{tab:als-scale}
-  \begin{tabular}{lrr}
-    \hline
-    Chỉ số & MovieLens-1M & MovieLens-32M \\
-    \hline
-    Số điểm train & $800\,203$ & $25\,604\,944$ \\
-    Số hệ mỗi vòng & $9\,746$ & $285\,380$ \\
-    Thời gian huấn luyện (s) & 1{,}45 & 71{,}6 \\
-    RMSE val của baseline & 0{,}9103 & 0{,}8574 \\
-    RMSE val của ALS & 0{,}8654 & 0{,}7769 \\
-    \hline
-  \end{tabular}
-\end{table}
+\subsubsection{Chi phí tính toán mỗi vòng}
 
 Phần tốn kém nhất mỗi vòng là dựng $Q_u^\top Q_u$, chiếm khoảng 84\% số phép tính với $k = 20$, chứ không
 phải bước Cholesky. Vì vậy, với $k$ nhỏ, thời gian chủ yếu tăng theo số điểm; số hạng $k^3$ của Cholesky
@@ -548,9 +527,8 @@ từ suy biến trở thành có nghiệm duy nhất, và giữ số điều ki�
         đoán mọi phim bằng điểm trung bình, mức giảm là khoảng 22\%. Phần cải thiện này đến từ cá nhân
         hóa: mô hình đưa những phim hợp gu riêng của từng người lên cao hơn danh sách ``phim được khen
         nhiều'' chung.
-  \item \textbf{Chi phí vận hành.} Huấn luyện mất khoảng 1,5 giây trên ML-1M và khoảng 1 phút trên 32
-        triệu điểm, trên một máy tính cá nhân. Ở quy mô này, có thể huấn luyện lại mỗi ngày khi có
-        đánh giá mới; vì các hệ độc lập, có thể chia ra nhiều máy khi dữ liệu lớn hơn nữa.
+  \item \textbf{Chi phí vận hành.} Huấn luyện mất khoảng 1,5 giây trên ML-1M, trên một máy tính cá nhân.
+        Ở quy mô này, có thể huấn luyện lại mỗi ngày khi có đánh giá mới; vì các hệ độc lập, có thể chia ra nhiều máy khi dữ liệu lớn hơn nữa.
   \item \textbf{Dễ vận hành.} Không có learning rate và $J$ luôn giảm, nên ít phải canh chỉnh hơn SGD.
 \end{itemize}
 
