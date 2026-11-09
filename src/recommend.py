@@ -10,13 +10,15 @@ Chạy: python -m src.recommend --user-id 42 --model als
 from __future__ import annotations
 
 import argparse
-import os
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from src.config import load_config
 from src.data.load import load_movies
-from src.data.preprocess import IdMaps
+from src.data.preprocess import IdMaps, load_processed
 from src.models.base import Recommender
 
 
@@ -28,6 +30,8 @@ def recommend_for_user(
     n: int = 10,
 ) -> pd.DataFrame:
     """Tạo bảng gợi ý cho một user.
+
+    Phim user đã đánh giá trong train được loại sẵn bởi `Recommender.recommend`.
 
     Args:
         model: Mô hình đã huấn luyện.
@@ -42,79 +46,55 @@ def recommend_for_user(
     Raises:
         KeyError: Nếu UserID không tồn tại.
     """
-    # 1. Ánh xạ UserID gốc sang chỉ số user_index liên tục
-    user_map = getattr(maps, "user_index", getattr(maps, "user2idx", None))
-    if user_map is None or user_id not in user_map:
+    if user_id not in maps.user_index:
         raise KeyError(f"UserID {user_id} không tồn tại trong dữ liệu.")
-    
-    user_idx = user_map[user_id]
+    user_idx = maps.user_index[user_id]
 
-    # 2. Gọi hàm recommend của mô hình để lấy danh sách item_idx và dự đoán điểm
-    rec_result = model.recommend(user_idx, n=n)
-    if isinstance(rec_result, tuple):
-        item_indices, scores = rec_result
-    else:
-        item_indices = rec_result
-        scores = model.predict(np.full_like(item_indices, user_idx), item_indices)
+    item_indices, scores = model.recommend(user_idx, n=n)
+    movie_ids = [maps.movie_ids[i] for i in item_indices]
 
-    # 3. Ánh xạ item_index về MovieID gốc
-    movie_map = getattr(maps, "movie_ids", getattr(maps, "idx2item", None))
-    if movie_map is not None:
-        movie_ids = [movie_map[i] for i in item_indices]
-    else:
-        movie_ids = item_indices
-
-    # 4. Tạo DataFrame kết quả và nối thông tin tiêu đề, thể loại phim
-    df_rec = pd.DataFrame({
-        "movie_id": movie_ids,
-        "predicted_rating": np.round(scores, 3)
-    })
-
-    id_col = "movie_id" if "movie_id" in movies.columns else ("MovieID" if "MovieID" in movies.columns else movies.columns[0])
-    merged = df_rec.merge(movies, left_on="movie_id", right_on=id_col, how="left")
-
-    merged["rank"] = range(1, len(merged) + 1)
-
-    title_col = "title" if "title" in merged.columns else ("Title" if "Title" in merged.columns else "title")
-    genres_col = "genres" if "genres" in merged.columns else ("Genres" if "Genres" in merged.columns else "genres")
-
-    merged = merged.rename(columns={title_col: "title", genres_col: "genres"})
-    
+    df_rec = pd.DataFrame({"movie_id": movie_ids, "predicted_rating": np.round(scores, 3)})
+    merged = df_rec.merge(movies[["movie_id", "title", "genres"]], on="movie_id", how="left")
+    merged.insert(0, "rank", range(1, len(merged) + 1))
     return merged[["rank", "title", "genres", "predicted_rating"]]
 
 
-def main() -> None:
-    """Đọc tham số dòng lệnh và in bảng gợi ý."""
+def main(argv: list[str] | None = None) -> None:
+    """Đọc tham số dòng lệnh và in bảng gợi ý.
+
+    Args:
+        argv: Danh sách tham số; None thì lấy từ dòng lệnh.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user-id", type=int, required=True, help="UserID gốc của người dùng")
-    parser.add_argument("--model", choices=["baseline", "svd", "als", "sgd"], default="als", help="Tên mô hình")
+    parser.add_argument(
+        "--model", choices=["baseline", "svd", "als", "sgd"], default="als", help="Tên mô hình"
+    )
+    parser.add_argument("--top-n", type=int, default=None, help="Số phim gợi ý (mặc định theo config)")
     parser.add_argument("--config", default=None, help="Đường dẫn file config")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    # 1. Load cấu hình
     cfg = load_config(args.config)
+    top_n = args.top_n or cfg["recommend"]["top_n"]
 
-    # 2. Load ánh xạ ID và danh sách phim
-    maps = IdMaps.load("data/processed/id_maps.pkl") if hasattr(IdMaps, "load") else IdMaps.load()
-    movies = load_movies()
+    # Không tự huấn luyện thay thế: nếu thiếu mô hình thì báo rõ, tránh in nhãn sai
+    model_path = Path(cfg["paths"]["models_dir"]) / f"{args.model}.pkl"
+    if not model_path.exists():
+        sys.exit(
+            f"Không tìm thấy mô hình '{args.model}' tại {model_path}. "
+            f"Hãy chạy: python -m experiments.run_{args.model}"
+        )
+    model = Recommender.load(model_path)
 
-    # 3. Load mô hình đã huấn luyện
-    model_path = f"results/models/{args.model}.pkl"
-    if not os.path.exists(model_path):
-        # Nếu chưa có file mô hình được lưu, khởi tạo và fit trực tiếp
-        from src.data.load import load_processed_data
-        from src.models.baseline import BiasBaseline
-        
-        train, val, _ = load_processed_data()
-        model = BiasBaseline()
-        model.fit(train, val)
-    else:
-        model = Recommender.load(model_path)
+    maps = load_processed(cfg).maps
+    movies = load_movies(Path(cfg["paths"]["raw_dir"]))
 
-    # 4. Tạo và in bảng kết quả gợi ý
-    recommendations = recommend_for_user(model, args.user_id, maps, movies, n=10)
-    
-    print(f"\n================ TOP 10 GỢI Ý CHO USER {args.user_id} (Model: {args.model.upper()}) ================")
+    try:
+        recommendations = recommend_for_user(model, args.user_id, maps, movies, n=top_n)
+    except KeyError as err:
+        sys.exit(f"Lỗi: {err.args[0]}")
+
+    print(f"\n=== TOP {top_n} GỢI Ý CHO USER {args.user_id} (mô hình: {args.model}) ===")
     print(recommendations.to_string(index=False))
 
 

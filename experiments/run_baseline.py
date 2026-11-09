@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -77,6 +78,11 @@ def run(cfg: dict[str, Any]) -> None:
 
         print(f"[{name}] Val  RMSE: {val_rmse:.4f} | Val  MAE: {val_mae:.4f}")
         print(f"[{name}] Test RMSE: {test_rmse:.4f} | Test MAE: {test_mae:.4f}\n")
+
+        # Chỉ lưu BiasBaseline cho demo: GlobalMean cho mọi phim cùng một điểm nên gợi ý vô nghĩa
+        if name == "BiasBaseline":
+            model.save(Path(cfg["paths"]["models_dir"]) / "baseline.pkl")
+            print(f"Đã lưu mô hình vào '{Path(cfg['paths']['models_dir']) / 'baseline.pkl'}'")
 
         results.append(
             {
