@@ -27,8 +27,7 @@ def regularized_gram(Q_u: np.ndarray, reg: float) -> np.ndarray:
     Returns:
         Ma trận k×k.
     """
-    # TODO: Q_u.T @ Q_u + reg * np.eye(k).
-    raise NotImplementedError
+    return Q_u.T @ Q_u + reg * np.eye(Q_u.shape[1])
 
 
 def condition_number(A: np.ndarray) -> float:
@@ -40,8 +39,11 @@ def condition_number(A: np.ndarray) -> float:
     Returns:
         κ₂(A); `np.inf` nếu trị riêng nhỏ nhất bằng 0 về mặt số.
     """
-    # TODO: eigvalsh, lấy tỉ số trị riêng lớn nhất và nhỏ nhất.
-    raise NotImplementedError
+    eigenvalues = np.linalg.eigvalsh(A)
+    smallest, largest = eigenvalues[0], eigenvalues[-1]
+    if smallest <= largest * A.shape[0] * np.finfo(A.dtype).eps:
+        return float(np.inf)
+    return float(largest / smallest)
 
 
 def condition_vs_lambda(
@@ -63,5 +65,19 @@ def condition_vs_lambda(
     Returns:
         DataFrame cột `reg`, `kappa_median`, `kappa_max`.
     """
-    # TODO: dùng median vì κ của user ít đánh giá rất lớn, trung bình sẽ bị lệch.
-    raise NotImplementedError
+    rng = np.random.default_rng(seed)
+    active = np.flatnonzero(np.diff(train.indptr) > 0)
+    sampled = rng.choice(active, size=min(n_users, active.size), replace=False)
+    rows = []
+    for reg in reg_grid:
+        kappas = [
+            condition_number(
+                regularized_gram(Q[train.indices[train.indptr[u] : train.indptr[u + 1]]], reg)
+            )
+            for u in sampled
+        ]
+        # Dùng median vì κ của user ít đánh giá rất lớn, trung bình sẽ bị lệch.
+        rows.append(
+            {"reg": reg, "kappa_median": float(np.median(kappas)), "kappa_max": float(np.max(kappas))}
+        )
+    return pd.DataFrame(rows)

@@ -32,8 +32,7 @@ def build_csr(
     Returns:
         Ma trận CSR dtype float64.
     """
-    # TODO: tạo qua sp.coo_matrix rồi .tocsr(). Hai đánh giá trùng ô sẽ bị cộng dồn.
-    raise NotImplementedError
+    return sp.coo_matrix((values, (users, items)), shape = shape, dtype = np.dtype("float64")).tocsr()
 
 
 def dense_memory_bytes(shape: tuple[int, int], dtype: np.dtype = np.dtype("float64")) -> int:
@@ -46,8 +45,8 @@ def dense_memory_bytes(shape: tuple[int, int], dtype: np.dtype = np.dtype("float
     Returns:
         Số byte.
     """
-    # TODO: số hàng * số cột * dtype.itemsize.
-    raise NotImplementedError
+    return shape[0] * shape[1] * dtype.itemsize
+
 
 
 def csr_memory_bytes(matrix: sp.csr_matrix) -> int:
@@ -59,8 +58,7 @@ def csr_memory_bytes(matrix: sp.csr_matrix) -> int:
     Returns:
         Tổng byte của `data`, `indices`, `indptr`.
     """
-    # TODO: cộng .nbytes của ba mảng.
-    raise NotImplementedError
+    return matrix.data.nbytes + matrix.indices.nbytes + matrix.indptr.nbytes
 
 
 def save_csr(path: Path, matrix: sp.csr_matrix) -> None:
@@ -70,8 +68,8 @@ def save_csr(path: Path, matrix: sp.csr_matrix) -> None:
         path: Đường dẫn file.
         matrix: Ma trận CSR.
     """
-    # TODO: sp.save_npz.
-    raise NotImplementedError
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sp.save_npz(path, matrix)
 
 
 def load_csr(path: Path) -> sp.csr_matrix:
@@ -83,5 +81,4 @@ def load_csr(path: Path) -> sp.csr_matrix:
     Returns:
         Ma trận CSR.
     """
-    # TODO: sp.load_npz.
-    raise NotImplementedError
+    return sp.load_npz(path)

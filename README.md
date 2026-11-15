@@ -110,17 +110,63 @@ chép file đó rồi thêm `--config configs/ten_file.yaml` vào lệnh.
 
 ## Cấu trúc repo
 
-| Thư mục | Vai trò |
-|---|---|
-| `configs/` | Tham số thí nghiệm, một nguồn duy nhất |
-| `data/` | Dữ liệu thô và đã xử lý, không commit |
-| `src/data/` | Tải, đọc, tiền xử lý, CSR |
-| `src/models/` | Baseline, SVD, ALS, SGD chung một giao diện |
-| `src/solvers/` | Cholesky, Gauss-Seidel tự cài |
-| `src/evaluation/` | Sai số, nhật ký hội tụ, số điều kiện |
-| `src/visualization/` | Hàm vẽ chung |
-| `experiments/` | Script tái tạo từng kết quả |
-| `notebooks/` | EDA |
-| `results/` | Hình, bảng, mô hình sinh ra, không commit |
-| `reports/` | Báo cáo LaTeX và slide |
-| `tests/` | Kiểm thử trên ví dụ biết trước đáp án |
+```text
+mf-recsys/
+├── README.md                     # mô tả đề tài, cài đặt, cách chạy
+├── ROADMAP.md                    # lộ trình 2 tuần, tiêu chí "xong"
+├── requirements.txt              # danh sách thư viện
+├── .gitignore                    # bỏ qua dữ liệu, kết quả, CLAUDE.md
+├── configs/
+│   └── default.yaml              # toàn bộ tham số: seed, k, λ, lr, số epoch...
+├── data/                         # không commit
+│   ├── raw/                      # ML-1M gốc
+│   └── processed/                # train/val/test, CSR đã lưu
+├── doc/
+│   └── PHAN_CONG.md              # phân công theo thành viên
+├── src/
+│   ├── __init__.py
+│   ├── config.py                 # đọc YAML, đặt seed
+│   ├── recommend.py              # demo: UserID -> top-10 phim
+│   ├── data/
+│   │   ├── __init__.py
+│   │   ├── download.py           # tải và giải nén ML-1M
+│   │   ├── load.py               # đọc ratings/movies/users.dat
+│   │   ├── preprocess.py         # ánh xạ ID, chia train/val/test
+│   │   └── sparse.py             # ma trận CSR, so sánh bộ nhớ (Ch.2)
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── base.py               # giao diện chung của mô hình
+│   │   ├── baseline.py           # global mean; mean + bias (Ch.3)
+│   │   ├── svd.py                # điền thiếu + SVD cắt cụt (Ch.4)
+│   │   ├── als.py                # ALS giải Ridge bằng Cholesky (Ch.2–3)
+│   │   └── sgd.py                # SGD, Momentum, Adam (Ch.5–6)
+│   ├── solvers/
+│   │   ├── __init__.py
+│   │   └── linear.py             # Cholesky tự cài (Ch.2)
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── metrics.py            # RMSE, MAE
+│   │   ├── convergence.py        # nhật ký theo vòng lặp và thời gian
+│   │   └── conditioning.py       # số điều kiện theo λ (Ch.1–3)
+│   └── visualization/
+│       ├── __init__.py
+│       └── plots.py              # hàm vẽ chung
+├── experiments/
+│   ├── run_baseline.py           # mốc RMSE baseline
+│   ├── run_svd.py                # RMSE và phổ giá trị kỳ dị
+│   ├── run_als.py                # hội tụ ALS, số điều kiện theo λ
+│   ├── run_sgd.py                # so sánh 3 optimizer
+│   ├── tune_k_lambda.py          # quét k, λ trên tập val
+│   └── compare_all.py            # bảng và hình tổng, nơi duy nhất dùng tập test
+├── notebooks/
+│   └── 01_eda.ipynb              # thống kê mô tả
+├── results/                      # sinh tự động, không commit
+│   ├── figures/
+│   └── tables/
+├── reports/
+│   └── sections/                 # mỗi người viết một file báo cáo
+└── tests/
+    ├── test_metrics.py           # kiểm thử RMSE, MAE
+    ├── test_base.py              # kiểm thử giao diện chung của mô hình
+    └── test_models_small.py      # ma trận nhỏ biết trước đáp án
+```

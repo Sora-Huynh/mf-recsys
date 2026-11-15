@@ -7,3 +7,4 @@ certifi>=2024.2.2
 numba>=0.59
 pytest>=8.0
 jupyter>=1.0
+pyarrow
