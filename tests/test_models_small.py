@@ -206,8 +206,36 @@ def test_cholesky_rejects_non_spd() -> None:
 
 def test_svd_recovers_full_low_rank(low_rank_matrix: np.ndarray) -> None:
     """Ma trận đầy đủ hạng 3 phải được khôi phục đúng với k = 3."""
-    # TODO: so sánh tái tạo với low_rank_matrix.
-    raise NotImplementedError
+    import numpy as np
+    import scipy.sparse as sp
+    from src.models.svd import TruncatedSVDRecommender
+
+    # Tự tạo một baseline giả ngay bên trong hàm test để SVD gọi lệnh fit không bị lỗi,
+    # đồng thời không đụng chạm đến class _ZeroBaseline bên ngoài của người khác.
+    class DummyBaseline:
+        rating_min = -100.0
+        rating_max = 100.0
+        def fit(self, train, val=None): 
+            return self
+        def predict_raw(self, users, items): 
+            return np.zeros(len(users))
+        def residual_matrix(self, ratings): 
+            return ratings.copy()
+
+    # 1. Chuyển ma trận hạng 3 thành dạng thưa (sparse CSR)
+    train = sp.csr_matrix(low_rank_matrix)
+
+    # 2. Khởi tạo mô hình SVD với k=3 và baseline giả[cite: 3]
+    model = TruncatedSVDRecommender(k=3, baseline=DummyBaseline())
+    model.fit(train)
+
+    # 3. Lấy toạ độ các ô và tính điểm dự đoán
+    users, items = np.nonzero(train.toarray())
+    predicted = model.predict_raw(users, items)
+
+    # 4. Kiểm tra sai số tái tạo ma trận (phải cực kỳ nhỏ)
+    error = np.sqrt(np.mean((predicted - low_rank_matrix[users, items]) ** 2))
+    assert error < 1e-7
 
 
 def test_als_objective_never_increases(observed: sp.csr_matrix) -> None:
