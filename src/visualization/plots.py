@@ -74,8 +74,66 @@ def plot_bars(
     Returns:
         Hình đã vẽ.
     """
-    # TODO: ax.bar + ax.bar_label.
-    raise NotImplementedError
+
+    if len(labels) == 0 or len(values) == 0:
+        raise ValueError("labels và values không được rỗng")
+
+    if len(labels) != len(values):
+        raise ValueError("labels và values phải có cùng độ dài")
+
+    numeric_values = [float(value) for value in values]
+
+    if not all(
+        pd.notna(value) and abs(value) != float("inf")
+        for value in numeric_values
+    ):
+        raise ValueError("values phải là các số hữu hạn")
+
+    fig, ax = plt.subplots()
+
+    bars = ax.bar(
+        labels,
+        numeric_values,
+        color=SERIES_COLORS[0],
+        width=0.65,
+    )
+
+    ax.bar_label(
+        bars,
+        labels=[fmt.format(value) for value in numeric_values],
+        padding=4,
+        fontsize=FONT_SIZE - 2,
+    )
+
+    ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    ax.set_axisbelow(True)
+    ax.grid(axis="y")
+
+    ax.tick_params(
+        axis="x",
+        labelrotation=15 if len(labels) > 4 else 0,
+    )
+
+    lower = min(numeric_values)
+    upper = max(numeric_values)
+
+    span = max(
+        upper - lower,
+        abs(upper),
+        abs(lower),
+        1.0,
+    )
+
+    bottom = 0.0 if lower >= 0 else lower - 0.08 * span
+    top = upper + 0.20 * span if upper > 0 else 0.0
+
+    ax.set_ylim(
+        bottom,
+        top if top > bottom else bottom + 1.0,
+    )
+
+    return fig
 
 
 def plot_convergence(
@@ -134,9 +192,102 @@ def plot_sweep(
     Returns:
         Hình đã vẽ.
     """
-    # TODO: vẽ đường, đánh dấu điểm tốt nhất.
-    raise NotImplementedError
+    required = [x, y] + ([hue] if hue is not None else [])
 
+    missing = [
+        column for column in required
+        if column not in table.columns
+    ]
+
+    if missing:
+        raise ValueError(f"Thiếu cột trong bảng sweep: {missing}")
+
+    if table.empty:
+        raise ValueError("Bảng sweep không được rỗng")
+
+    data = table[required].copy()
+
+    data[x] = pd.to_numeric(data[x], errors="coerce")
+    data[y] = pd.to_numeric(data[y], errors="coerce")
+
+    data = data.dropna(subset=[x, y])
+
+    if data.empty:
+        raise ValueError("Bảng sweep không có cặp x/y hợp lệ")
+
+    if not data[x].map(
+        lambda value: abs(value) != float("inf")
+    ).all():
+        raise ValueError(f"Cột {x!r} chứa giá trị không hữu hạn")
+
+    if not data[y].map(
+        lambda value: abs(value) != float("inf")
+    ).all():
+        raise ValueError(f"Cột {y!r} chứa giá trị không hữu hạn")
+
+    if logx and (data[x] <= 0).any():
+        raise ValueError(
+            "logx=True yêu cầu mọi giá trị trên trục x phải dương"
+        )
+
+    fig, ax = plt.subplots()
+
+    if hue is None:
+        groups = [(None, data)]
+    else:
+        groups = list(data.groupby(hue, sort=False, dropna=False))
+
+    for index, (name, subset) in enumerate(groups):
+
+        color = (
+            SERIES_COLORS[index]
+            if index < len(SERIES_COLORS)
+            else REFERENCE_COLOR
+        )
+
+        subset = subset.sort_values(x)
+
+        ax.plot(
+            subset[x],
+            subset[y],
+            color=color,
+            marker="o",
+            label=str(name) if hue is not None else None,
+        )
+
+    best = data.loc[data[y].idxmin()]
+
+    ax.scatter(
+        [best[x]],
+        [best[y]],
+        color=REFERENCE_COLOR,
+        marker="*",
+        s=190,
+        zorder=5,
+        label=f"Best ({best[y]:.4f})",
+    )
+
+    axis_labels = {
+        "k": "Latent factors (k)",
+        "reg": "Regularization λ",
+        "val_rmse": "Validation RMSE",
+        "test_rmse": "Test RMSE",
+        "fit_time_s": "Training time (s)",
+    }
+
+    ax.set_xlabel(axis_labels.get(x, x))
+    ax.set_ylabel(axis_labels.get(y, y))
+
+    if logx:
+        ax.set_xscale("log")
+
+    if x == "k":
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    if hue is not None or len(groups) == 1:
+        ax.legend()
+
+    return fig
 
 def plot_condition(table: pd.DataFrame) -> plt.Figure:
     """Vẽ số điều kiện theo λ, hai trục log.
