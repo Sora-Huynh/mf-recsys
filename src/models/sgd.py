@@ -159,6 +159,7 @@ class SGDRecommender(Recommender):
         init_std: float = 0.1,
         hyper: dict[str, Any] | None = None,
         seed: int = 42,
+        patience: int | None = None,
     ) -> None:
         """Khởi tạo mô hình.
 
@@ -166,14 +167,21 @@ class SGDRecommender(Recommender):
             k: Số nhân tố ẩn.
             reg: Hệ số λ theo từng đánh giá.
             lr: Learning rate.
-            n_epochs: Số epoch.
+            n_epochs: Số epoch tối đa.
             batch_size: Kích thước mini-batch.
             baseline: `BiasBaseline` đã fit.
             optimizer: `sgd`, `momentum` hoặc `adam`.
             init_std: Độ lệch chuẩn khởi tạo P, Q.
             hyper: Các hệ số của optimizer.
             seed: Seed khởi tạo và xáo dữ liệu.
+            patience: Dừng sớm khi val RMSE không giảm trong ngần này epoch liên tiếp;
+                None thì chạy đủ `n_epochs`. Chỉ có tác dụng khi `fit` nhận `val`.
+
+        Raises:
+            ValueError: Nếu `patience` nhỏ hơn 1.
         """
+        if patience is not None and patience < 1:
+            raise ValueError(f"patience phải >= 1, nhận {patience}")
         super().__init__(baseline.rating_min, baseline.rating_max)
         self.k = k
         self.reg = reg
@@ -185,7 +193,10 @@ class SGDRecommender(Recommender):
         self.init_std = init_std
         self.hyper = hyper or {}
         self.seed = seed
+        self.patience = patience
         self.log = ConvergenceLog()
+        # Epoch có val RMSE thấp nhất; P, Q cuối cùng là của epoch này. None nếu không có val.
+        self.best_epoch_: int | None = None
 
     def _fit(self, train: sp.csr_matrix, val: sp.csr_matrix | None) -> None:
         from time import perf_counter
@@ -256,11 +267,21 @@ class SGDRecommender(Recommender):
                 train_rmse=train_rmse,
                 val_rmse=val_rmse,
             )
+            return val_rmse
 
         elapsed = 0.0
 
         # Epoch 0: đo sai số trước khi học để có mốc so sánh.
-        record_metrics(0, elapsed)
+        val_rmse = record_metrics(0, elapsed)
+
+        # Dừng sớm: giữ bản sao P, Q của epoch có val RMSE thấp nhất. Phải copy vì
+        # optimizer cập nhật P, Q tại chỗ.
+        self.best_epoch_ = None
+        if val_rmse is not None:
+            best_val = val_rmse
+            best_P, best_Q = self.P.copy(), self.Q.copy()
+            self.best_epoch_ = 0
+            bad_epochs = 0
 
         # 5. Huấn luyện qua nhiều epoch.
         for epoch in range(1, self.n_epochs + 1):
@@ -289,7 +310,23 @@ class SGDRecommender(Recommender):
                 )
 
             elapsed += perf_counter() - start
-            record_metrics(epoch, elapsed)
+            val_rmse = record_metrics(epoch, elapsed)
+
+            if val_rmse is None:
+                continue
+            if val_rmse < best_val:
+                best_val = val_rmse
+                best_P, best_Q = self.P.copy(), self.Q.copy()
+                self.best_epoch_ = epoch
+                bad_epochs = 0
+            else:
+                bad_epochs += 1
+                if self.patience is not None and bad_epochs >= self.patience:
+                    break
+
+        # Nhật ký vẫn giữ mọi epoch đã chạy; mô hình trả về là của epoch tốt nhất.
+        if self.best_epoch_ is not None:
+            self.P, self.Q = best_P, best_Q
 
     def predict_raw(self, users: np.ndarray, items: np.ndarray) -> np.ndarray:
         # Điểm dự đoán từ baseline: trung bình + bias user/phim.

@@ -432,3 +432,47 @@ def test_optimizer_two_steps(optimizer, expected):
         rtol=1e-6,
         atol=1e-8,
     )
+
+
+def test_sgd_early_stopping_keeps_best_epoch(low_rank_matrix: np.ndarray) -> None:
+    """Có val và patience: dừng khi val không giảm, và P, Q là của epoch val tốt nhất."""
+    from src.models.sgd import SGDRecommender
+
+    # Train là ô quan sát cộng nhiễu, val là các ô bị ẩn không nhiễu. Không điều chuẩn
+    # và k lớn nên mô hình sẽ khớp cả nhiễu, val RMSE ngừng giảm rồi tăng lại.
+    rng = np.random.default_rng(3)
+    mask = rng.random(low_rank_matrix.shape) < 0.6
+    noisy = low_rank_matrix + rng.normal(0.0, 0.5, low_rank_matrix.shape)
+    train = sp.csr_matrix(np.where(mask, noisy, 0.0))
+    val = sp.csr_matrix(np.where(~mask, low_rank_matrix, 0.0))
+
+    patience = 3
+    model = SGDRecommender(
+        k=10, reg=0.0, lr=0.01, n_epochs=500, batch_size=64,
+        baseline=_ZeroBaseline(), optimizer="sgd", init_std=0.1, seed=0,
+        patience=patience,
+    ).fit(train, val)
+
+    log = model.log.to_frame()
+    best = int(log.loc[log["val_rmse"].idxmin(), "epoch"])
+    last = int(log["epoch"].iloc[-1])
+
+    assert model.best_epoch_ == best
+    assert last == best + patience < 500
+    coo = val.tocoo()
+    final = np.sqrt(np.mean((coo.data - model.predict(coo.row, coo.col)) ** 2))
+    assert final == pytest.approx(log["val_rmse"].min())
+
+
+def test_sgd_without_val_runs_all_epochs() -> None:
+    """Không có val thì không dừng sớm, chạy đủ n_epochs."""
+    from src.models.sgd import SGDRecommender
+
+    train = sp.csr_matrix(np.arange(1.0, 13.0).reshape(4, 3) / 4.0)
+    model = SGDRecommender(
+        k=2, reg=0.0, lr=0.01, n_epochs=5, batch_size=4,
+        baseline=_ZeroBaseline(), optimizer="sgd", seed=0, patience=1,
+    ).fit(train)
+
+    assert model.best_epoch_ is None
+    assert int(model.log.to_frame()["epoch"].iloc[-1]) == 5
