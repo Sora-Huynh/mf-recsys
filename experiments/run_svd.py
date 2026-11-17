@@ -90,7 +90,7 @@ def run(cfg: dict[str, Any]) -> None:
         print(f"Đã lưu biểu đồ phổ tại {plot_path}")
 
     # 7. Lưu mô hình
-    model_path = "results/svd_model.pkl"
+    model_path = "results/models/svd.pkl"
     model.save(model_path)
     print(f"Đã lưu mô hình tại {model_path}")
 

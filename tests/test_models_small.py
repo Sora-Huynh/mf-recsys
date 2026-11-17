@@ -3,8 +3,7 @@
 Mục đích: dữ liệu thật không cho biết đáp án đúng; ma trận hạng thấp tự tạo thì có,
 nên lỗi thuật toán lộ ra ngay mà không phải chờ chạy ML-1M.
 
-Mỗi test đang ở trạng thái xfail. Khi cài xong, thay `raise NotImplementedError` bằng
-phần kiểm tra và bỏ `pytestmark` khi file không còn test nào chưa làm.
+File chứa các bài test mô hình trên ma trận nhỏ
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
-pytestmark = pytest.mark.xfail(raises=NotImplementedError, reason="Chưa cài đặt")
 
 
 @pytest.fixture
@@ -61,8 +59,6 @@ def test_cholesky_rejects_non_spd() -> None:
 
 def test_svd_recovers_full_low_rank(low_rank_matrix: np.ndarray) -> None:
     """Ma trận đầy đủ hạng 3 phải được khôi phục đúng với k = 3."""
-    import numpy as np
-    import scipy.sparse as sp
     from src.models.svd import TruncatedSVDRecommender
 
     # Tự tạo một baseline giả ngay bên trong hàm test để SVD gọi lệnh fit không bị lỗi,
@@ -80,7 +76,7 @@ def test_svd_recovers_full_low_rank(low_rank_matrix: np.ndarray) -> None:
     # 1. Chuyển ma trận hạng 3 thành dạng thưa (sparse CSR)
     train = sp.csr_matrix(low_rank_matrix)
 
-    # 2. Khởi tạo mô hình SVD với k=3 và baseline giả[cite: 3]
+    # 2. Khởi tạo mô hình SVD với k=3 và baseline giả
     model = TruncatedSVDRecommender(k=3, baseline=DummyBaseline())
     model.fit(train)
 
