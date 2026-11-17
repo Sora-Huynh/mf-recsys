@@ -34,8 +34,10 @@ als:
 
 sgd:
   k: 20
-  reg: 0.02         # λ theo từng đánh giá, KHÔNG cùng thang với als.reg
-  n_epochs: 30
+  reg: 0.05         # λ theo từng đánh giá, KHÔNG cùng thang với als.reg. Chọn theo val:
+                    # 0.02 overfit sau 2–16 epoch, 0.1 trở lên học chưa đủ.
+  n_epochs: 30      # số epoch tối đa
+  patience: 3       # dừng sớm khi val RMSE không giảm 3 epoch liên tiếp
   batch_size: 4096
   init_std: 0.1
   optimizer: adam   # sgd | momentum | adam
