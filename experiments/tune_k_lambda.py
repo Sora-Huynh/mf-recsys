@@ -7,7 +7,6 @@ không bị lạc quan.
 Quét gọn:
 - ALS: quét k rồi quét λ riêng, không làm lưới đầy đủ.
 - SVD: chỉ quét k, phân rã một lần tại k lớn nhất.
-- SGD: dùng k tốt nhất của ALS, quét reg quanh giá trị mặc định.
 
 Liên quan Ch.3 và Ch.4.
 
@@ -17,7 +16,6 @@ Chạy: python -m experiments.tune_k_lambda
 from __future__ import annotations
 
 import argparse
-import inspect
 import time
 from pathlib import Path
 from typing import Any
@@ -282,129 +280,6 @@ def sweep_svd(cfg: dict[str, Any]) -> pd.DataFrame:
     )
 
 
-def _make_sgd(cfg, k, reg, baseline):
-    """Khởi tạo SGD theo constructor của source nhóm.
-
-    Tự lấy những tham số có cùng tên từ cfg['sgd'].
-    """
-
-    from src.models import sgd as sgd_module
-
-    model_class = getattr(
-        sgd_module, "SGDRecommender", None
-    )
-
-    if model_class is None:
-        raise ImportError(
-            "Không tìm thấy SGDRecommender trong src.models.sgd. "
-            "Cần dùng đúng tên class của nhóm."
-        )
-
-    settings = dict(cfg["sgd"])
-
-    settings.update({
-        "k": k,
-        "reg": reg,
-        "baseline": baseline,
-        "seed": int(cfg["seed"]),
-        "rating_min": cfg["ratings"]["min"],
-        "rating_max": cfg["ratings"]["max"],
-    })
-
-    # Một số tên tham số có thể khác nhau giữa các constructor.
-    settings.setdefault("learning_rate", settings.get("lr"))
-    settings.setdefault("epochs", settings.get("n_epochs"))
-    settings.setdefault("n_factors", k)
-    settings.setdefault("random_state", int(cfg["seed"]))
-
-    signature = inspect.signature(model_class)
-
-    kwargs = {
-        name: settings[name]
-        for name in signature.parameters
-        if name in settings and settings[name] is not None
-    }
-
-    missing = [
-        name
-        for name, param in signature.parameters.items()
-        if param.default is inspect.Parameter.empty
-        and param.kind not in (
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        )
-        and name not in kwargs
-    ]
-
-    if missing:
-        raise ValueError(
-            f"Thiếu tham số khởi tạo SGD: {missing}"
-        )
-
-    return model_class(**kwargs)
-
-
-def sweep_sgd(
-    cfg: dict[str, Any],
-    best_k: int,
-) -> pd.DataFrame:
-    """Dùng k tốt nhất của ALS, quét reg riêng của SGD."""
-
-    train, users, items, ratings = _load_data(cfg)
-
-    default_reg = float(cfg["sgd"]["reg"])
-
-    # Nếu config chưa có lưới SGD, quét quanh reg mặc định.
-    reg_values = cfg["tune"].get(
-        "sgd_reg_grid",
-        [
-            default_reg * 0.25,
-            default_reg * 0.5,
-            default_reg,
-            default_reg * 2,
-            default_reg * 4,
-        ],
-    )
-
-    reg_grid = _positive_grid(
-        reg_values, "sgd_reg_grid"
-    )
-
-    baseline = _make_baseline(cfg, train)
-
-    rows = []
-
-    for reg in reg_grid:
-        print(f"[SGD] k={best_k}, reg={reg:g}")
-
-        model = _make_sgd(
-            cfg, best_k, reg, baseline
-        )
-
-        start = time.perf_counter()
-        model.fit(train)
-        fit_time = time.perf_counter() - start
-
-        predictions = model.predict(users, items)
-        score = rmse(ratings, predictions)
-
-        if not np.isfinite(score):
-            raise RuntimeError(
-                f"SGD lỗi tại reg={reg}"
-            )
-
-        rows.append({
-            "k": best_k,
-            "reg": reg,
-            "val_rmse": score,
-            "fit_time_s": fit_time,
-        })
-
-    return pd.DataFrame(rows).sort_values(
-        "reg", ignore_index=True
-    )
-
-
 def run(cfg: dict[str, Any]) -> None:
     """Chạy các lần quét, lưu bảng và hình ảnh hưởng của k, λ.
 
@@ -459,21 +334,7 @@ def run(cfg: dict[str, Any]) -> None:
         svd_results["val_rmse"].idxmin()
     ]
 
-    # 2. Quét reg SGD theo k tốt nhất của ALS.
-    sgd_results = sweep_sgd(
-        cfg, best_k=int(best_als_k["k"])
-    )
-
-    sgd_results.to_csv(
-        tables_dir / "sgd_reg_sweep.csv",
-        index=False,
-    )
-
-    best_sgd = sgd_results.loc[
-        sgd_results["val_rmse"].idxmin()
-    ]
-
-    # 3. Vẽ hình với style thống nhất.
+    # 2. Vẽ hình với style thống nhất.
     apply_style()
 
     # So sánh k giữa ALS và SVD.
@@ -509,18 +370,7 @@ def run(cfg: dict[str, Any]) -> None:
         figures_dir / "tune_lambda_val_rmse.png",
     )
 
-    # Quét reg cho SGD.
-    save_figure(
-        plot_sweep(
-            sgd_results,
-            x="reg",
-            y="val_rmse",
-            logx=True,
-        ),
-        figures_dir / "tune_sgd_lambda_val_rmse.png",
-    )
-
-    # 4. Thông báo kết quả lựa chọn trên validation.
+    # 3. Thông báo kết quả lựa chọn trên validation.
     print("\n========== BEST VALIDATION PARAMETERS ==========")
 
     print(
@@ -538,12 +388,6 @@ def run(cfg: dict[str, Any]) -> None:
     print(
         f"SVD best k: {int(best_svd['k'])} "
         f"(RMSE={best_svd['val_rmse']:.4f})"
-    )
-
-    print(
-        f"SGD best reg: {best_sgd['reg']:g} "
-        f"(k={int(best_als_k['k'])}, "
-        f"RMSE={best_sgd['val_rmse']:.4f})"
     )
 
     print(
