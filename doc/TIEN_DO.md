@@ -2,7 +2,7 @@
 
 Cập nhật: 09/11/2026, trên nhánh `develop` sau khi merge PR #6 và #7 (commit `4903914`).
 
-Tiêu chí "xong" của từng việc nằm trong [ROADMAP.md](../ROADMAP.md), phân công nằm trong [PHAN_CONG.md](PHAN_CONG.md).
+Tiêu chí "xong" của từng việc nằm trong [ROADMAP.md](../ROADMAP.md).
 
 ## Tổng quan
 
