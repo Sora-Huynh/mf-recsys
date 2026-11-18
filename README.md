@@ -1,172 +1,213 @@
-# Hệ gợi ý dựa trên phân rã ma trận: So sánh SVD, ALS và SGD
+# mf-recsys: hệ gợi ý phim bằng phân rã ma trận
 
 Bài tập lớn môn AS2069 *Phương pháp số cho Khoa học dữ liệu*, ĐH Bách Khoa – ĐHQG-HCM.
+Đề tài: dự đoán số sao còn thiếu trong ma trận người dùng × phim của MovieLens-1M bằng phân rã
+R ≈ μ + b_u + b_i + P Qᵀ, rồi so sánh ba phương pháp số tìm phân rã (SVD cắt cụt, ALS, SGD) về
+độ chính xác, tốc độ hội tụ và tính chất số. Chỉ số chính: RMSE trên tập test.
 
-## Đề tài
+- Dữ liệu: <https://grouplens.org/datasets/movielens/1m/>
+- Bài báo nền: Koren, Bell, Volinsky, *Matrix Factorization Techniques for Recommender Systems*,
+  IEEE Computer, 2009.
 
-Dự đoán điểm còn thiếu trong ma trận user × phim của MovieLens-1M bằng phân rã R ≈ P Qᵀ,
-và so sánh ba cách giải về độ chính xác, tốc độ hội tụ và tính chất số.
+Mọi mô hình dùng chung một dạng dự đoán và chung một tầng cơ sở:
 
-| Phương pháp | Ý tưởng | Chương |
-|---|---|---|
-| Baseline | Trung bình toàn cục; trung bình + bias user/phim | Ch.3 |
-| SVD cắt cụt | Điền ô thiếu rồi lấy xấp xỉ hạng k | Ch.4 |
-| ALS | Luân phiên giải hệ Ridge (QᵀQ + λI)p = Qᵀr bằng Cholesky | Ch.2–3 |
-| SGD / Momentum / Adam | Giảm gradient theo mini-batch | Ch.5–6 |
-
-Cả ba phương pháp phân rã cùng một ma trận phần dư r − (μ + b_u + b_i), nên kết quả
-so sánh được với nhau.
-
-**Dữ liệu:** MovieLens-1M, 1.000.209 đánh giá, 6.040 user, khoảng 3.700 phim, thưa
-khoảng 95,5%.
-
-**Bài báo nền:** Koren, Bell, Volinsky, *Matrix Factorization Techniques for
-Recommender Systems*, IEEE Computer, 2009.
-
-**Trích dẫn dữ liệu:** Harper, Konstan, *The MovieLens Datasets: History and Context*,
-ACM TiiS 5(4), 2015. License không cho phát hành lại dữ liệu, nên `data/raw/` không được
-commit.
+1. **Mô hình cơ sở.** μ là điểm trung bình của tập train; b_u, b_i là độ lệch của người dùng và của
+   phim, co về 0 theo hệ số n/(n + λ) (hồi quy Ridge một biến). Các độ lệch được cố định.
+2. **Phân rã phần dư.** Cả ba phương pháp chỉ học phần tương tác p_uᵀq_i trên ma trận phần dư
+   e_ui = r_ui − (μ + b_u + b_i), nên khác biệt về kết quả chỉ đến từ bản thân phương pháp:
+   - **SVD cắt cụt:** điền 0 vào ô trống của ma trận phần dư (vẫn thưa), lấy k giá trị kỳ dị lớn
+     nhất bằng `scipy.sparse.linalg.svds`.
+   - **ALS:** luân phiên giải hệ Ridge (Q_uᵀQ_u + λI) p_u = Q_uᵀe_u cho từng người dùng, rồi hệ
+     tương tự cho từng phim, bằng phân rã Cholesky tự cài (biên dịch bằng numba, chạy song song).
+   - **SGD:** giảm gradient theo mini-batch với ba bộ tối ưu (SGD thường, Momentum, Adam), dừng sớm
+     theo RMSE trên tập val.
+3. **Gợi ý.** Với một người dùng, xếp các phim chưa xem theo điểm dự đoán và lấy 10 phim đầu.
 
 ## Cài đặt
 
-Cần Python 3.11 trở lên. Chạy các lệnh tại thư mục `mf-recsys/`.
+Python 3.11 trở lên (phát triển trên 3.12). Chạy mọi lệnh tại thư mục `mf-recsys/`.
 
 ```bash
 python -m venv .venv
-```
-
-Kích hoạt môi trường trên Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-Trên macOS/Linux:
-
-```bash
-source .venv/bin/activate
-```
-
-Cài thư viện và tải dữ liệu:
-
-```bash
+# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Dữ liệu
+
+Giấy phép của MovieLens-1M không cho phát hành lại dữ liệu, nên `data/` không được commit. Lệnh sau
+tải `ml-1m.zip` từ GroupLens, kiểm tra mã MD5 rồi giải nén vào `data/raw/ml-1m/`:
 
 ```bash
 python -m src.data.download
 ```
 
-## Cách chạy
+Nhóm chỉ dùng `ratings.dat` để học (1.000.209 đánh giá, 6.040 người dùng, 3.706 phim có đánh giá,
+thưa 95,53%) và `movies.dat` để in tên phim khi gợi ý.
 
-> Hiện repo mới là khung: chỉ `config`, `download`, `load`, `metrics`, `models/base` đã hoàn chỉnh, các
-> lệnh còn lại sẽ báo `NotImplementedError` cho tới khi được cài. Tiến độ xem ở
-> [ROADMAP.md](ROADMAP.md).
+## Chạy toàn bộ
 
-Chạy từ thư mục gốc repo với `python -m` để `import src` hoạt động. Thứ tự thực hiện:
+Chạy lần lượt các bước dưới đây, từ thư mục gốc repo và luôn qua `python -m` để `import src` hoạt
+động. Toàn bộ mất khoảng 4 phút trên CPU.
 
-```bash
-python -m src.data.preprocess
-```
+| Bước | Lệnh | Việc làm | Thời gian (CPU) |
+|---|---|---|---|
+| 0 | `python -m src.data.download` | Tải và kiểm tra MovieLens-1M | vài giây |
+| 1 | `python -m src.data.preprocess` | Chia train/val/test, ánh xạ ID, lưu ma trận train dạng CSR | ~15 s |
+| 2 | `python -m experiments.run_baseline` | Global mean và mean + bias, lưu `baseline.pkl` | ~5 s |
+| 3 | `python -m experiments.run_svd` | SVD cắt cụt, phổ giá trị kỳ dị, lưu `svd.pkl` | ~5 s |
+| 4 | `python -m experiments.run_als` | ALS + Cholesky, đường hội tụ, số điều kiện theo λ, lưu `als.pkl` | ~20 s |
+| 5 | `python -m experiments.run_sgd` | So sánh SGD, Momentum, Adam (dừng sớm), lưu `sgd_best.pkl` | ~1,5 phút |
+| 6 | `python -m experiments.tune_k_lambda` | Quét k (ALS, SVD) và λ (ALS) trên tập val | ~40 s |
+| 7 | `python -m experiments.compare_all` | Bảng RMSE trên **tập test** và các hình so sánh | ~10 s |
+| 8 | `python -m src.recommend --user-id 42 --model als` | Demo: top 10 phim gợi ý cho một người dùng | vài giây |
 
-```bash
-python -m experiments.run_baseline
-```
+Bước 7 đọc các mô hình do bước 2–5 lưu, nên phải chạy sau cùng. Đây là nơi duy nhất dùng tập test.
+Bảng ra `results/tables/`, hình ra `results/figures/`, mô hình ra `results/models/`.
 
-```bash
-python -m experiments.run_svd
-```
-
-```bash
-python -m experiments.run_als
-```
-
-```bash
-python -m experiments.run_sgd
-```
+Kiểm thử (39 test trên ma trận nhỏ biết trước đáp án):
 
 ```bash
-python -m experiments.tune_k_lambda
+python -m pytest -q
 ```
 
-```bash
-python -m experiments.compare_all
+Xem toàn bộ kết quả cạnh nhau: mở `notebooks/02_results.ipynb` sau khi chạy xong bước 7. Notebook chỉ
+đọc bảng và hình trong `results/`, không huấn luyện lại.
+
+### Sơ đồ quy trình
+
+```mermaid
+flowchart TD
+    raw["data/raw/ml-1m/ratings.dat<br/>1.000.209 đánh giá"] --> split["Bước 1: xáo trộn với seed 42<br/>chia 80/10/10 theo từng đánh giá"]
+    split --> cold["Chuyển 18 + 18 đánh giá có user/phim<br/>không có trong train về train"]
+    cold --> ids["Ánh xạ UserID, MovieID<br/>sang chỉ số liên tục"]
+    ids --> csr["Ma trận train CSR 6.040 × 3.706<br/>nnz = 800.203"]
+    ids --> valtest["val.parquet, test.parquet"]
+    csr --> base["Bước 2: mô hình cơ sở<br/>μ, b_u, b_i (λ = 10)"]
+    base --> res["Ma trận phần dư<br/>e = r − (μ + b_u + b_i)"]
+    res --> svd["Bước 3: SVD cắt cụt<br/>svds, k = 20"]
+    res --> als["Bước 4: ALS<br/>Cholesky, k = 10, λ = 10, 20 vòng"]
+    res --> sgd["Bước 5: SGD / Momentum / Adam<br/>k = 20, λ = 0,05, dừng sớm"]
+    valtest --> tune["Bước 6: quét k, λ trên val"]
+    svd --> cmp["Bước 7: so sánh trên test"]
+    als --> cmp
+    sgd --> cmp
+    base --> cmp
+    valtest --> cmp
+    cmp --> out["results/tables/compare_test.csv<br/>results/figures/compare_*.png"]
+    als --> demo["Bước 8: demo top-10"]
 ```
 
-Demo gợi ý:
+### 1. Tiền xử lý
 
-```bash
-python -m src.recommend --user-id 42 --model als
-```
+`ratings.dat` được xáo trộn với seed 42 rồi cắt 80/10/10 theo từng đánh giá. Một đánh giá trong val
+hoặc test chỉ dự đoán được khi cả người dùng lẫn phim đã có trong train, nên 36 đánh giá không thỏa điều
+kiện này (18 ở val, 18 ở test) được chuyển về train. Kết quả: 800.203 / 100.002 / 100.004 đánh giá.
+MovieID chạy tới 3.952 nhưng chỉ 3.706 mã có đánh giá, nên mã được đổi sang chỉ số liên tục. Ma trận
+train lưu dạng CSR: 9,63 MB so với 179,07 MB nếu lưu đầy đủ (nhỏ hơn 18,6 lần).
 
-Kiểm thử:
+### 2. Mô hình và tham số
 
-```bash
-python -m pytest
-```
+| Mô hình | k | λ | Tham số khác |
+|---|---|---|---|
+| Mean + bias | – | 10 | hệ số co của b_u, b_i |
+| SVD cắt cụt | 20 | – | `svds` trên ma trận phần dư |
+| ALS | 10 | 10 | 20 vòng, Cholesky tự cài |
+| SGD | 20 | 0,05 | SGD thường, η = 0,05, batch 4.096, dừng sớm sau 3 epoch không cải thiện |
 
-Mọi tham số nằm trong [configs/default.yaml](configs/default.yaml). Thử cấu hình khác:
-chép file đó rồi thêm `--config configs/ten_file.yaml` vào lệnh.
+Tham số được chọn trên tập val: với ALS, quét k ở λ = 10 rồi quét λ ở k tốt nhất (bước 6); với SGD,
+chọn λ và bộ tối ưu có RMSE val thấp nhất (bước 5). Mọi tham số nằm trong
+[configs/default.yaml](configs/default.yaml); muốn thử cấu hình khác, chép file đó rồi thêm
+`--config configs/ten_file.yaml` vào lệnh.
+
+### Kết quả
+
+Tập test, 100.004 đánh giá (bước 7):
+
+| Mô hình | RMSE val | RMSE test | MAE test | Giảm RMSE so với mean + bias | Thời gian huấn luyện |
+|---|---|---|---|---|---|
+| Global mean | 1,1165 | 1,1165 | 0,9332 | – | 0,002 s |
+| Mean + bias | 0,9103 | 0,9085 | 0,7183 | mốc | 0,04 s |
+| SVD cắt cụt | 0,8840 | 0,8815 | 0,6937 | 3,0% | 0,37 s |
+| **ALS** | **0,8603** | **0,8553** | **0,6667** | **5,9%** | 0,49 s |
+| SGD | 0,8647 | 0,8621 | 0,6744 | 5,1% | 10,4 s |
+
+- ALS chính xác nhất và nhanh hơn SGD khoảng 21 lần. Hàm mục tiêu của ALS giảm ở mọi vòng.
+- SVD kém hơn vì phải coi các ô trống là phần dư bằng 0.
+- Phần lớn mức giảm sai số so với trung bình toàn cục đến từ độ lệch b_u, b_i.
+
+Thời gian đo trên CPU AMD Ryzen 7 H 255 (16 luồng), chỉ tính phần huấn luyện, không tính phần đánh giá.
+ALS chạy song song bằng numba còn SGD chạy bằng NumPy, nên tỉ lệ thời gian phụ thuộc cả cách cài đặt.
+
+## Tái lập
+
+Mọi nguồn ngẫu nhiên dùng seed 42 (`seed` trong cấu hình): cách chia dữ liệu, khởi tạo P và Q, thứ tự
+duyệt dữ liệu của SGD. Chạy lại `src.data.preprocess` cho đúng cùng một cách chia. Kết quả ALS không
+phụ thuộc số luồng của CPU (có test kiểm tra). Thời gian chạy thay đổi theo máy.
 
 ## Cấu trúc repo
 
 ```text
 mf-recsys/
-├── README.md                     # mô tả đề tài, cài đặt, cách chạy
-├── ROADMAP.md                    # lộ trình 2 tuần, tiêu chí "xong"
-├── requirements.txt              # danh sách thư viện
-├── .gitignore                    # bỏ qua dữ liệu, kết quả, CLAUDE.md
+├── README.md
+├── ROADMAP.md                    # lộ trình 2 tuần và tiêu chí "xong" của từng bước
+├── requirements.txt
 ├── configs/
-│   └── default.yaml              # toàn bộ tham số: seed, k, λ, lr, số epoch...
-├── data/                         # không commit
-│   ├── raw/                      # ML-1M gốc
-│   └── processed/                # train/val/test, CSR đã lưu
+│   └── default.yaml              # toàn bộ tham số: seed, tỉ lệ chia, k, λ, lr, số epoch, lưới quét
 ├── doc/
-│   └── PHAN_CONG.md              # phân công theo thành viên
+│   ├── PHAN_CONG.md              # phân công theo thành viên
+│   └── TIEN_DO.md                # tiến độ và nhận xét review
 ├── src/
-│   ├── __init__.py
 │   ├── config.py                 # đọc YAML, đặt seed
 │   ├── recommend.py              # demo: UserID -> top-10 phim
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── download.py           # tải và giải nén ML-1M
-│   │   ├── load.py               # đọc ratings/movies/users.dat
-│   │   ├── preprocess.py         # ánh xạ ID, chia train/val/test
-│   │   └── sparse.py             # ma trận CSR, so sánh bộ nhớ (Ch.2)
+│   │   ├── download.py           # tải, kiểm tra MD5, giải nén ML-1M
+│   │   ├── load.py               # đọc ratings.dat, movies.dat
+│   │   ├── preprocess.py         # chia tập, xử lý cold-start, ánh xạ ID
+│   │   └── sparse.py             # dựng, lưu, đọc CSR; so sánh bộ nhớ
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── base.py               # giao diện chung của mô hình
-│   │   ├── baseline.py           # global mean; mean + bias (Ch.3)
-│   │   ├── svd.py                # điền thiếu + SVD cắt cụt (Ch.4)
-│   │   ├── als.py                # ALS giải Ridge bằng Cholesky (Ch.2–3)
-│   │   └── sgd.py                # SGD, Momentum, Adam (Ch.5–6)
+│   │   ├── base.py               # giao diện chung: fit, predict, recommend, save, load
+│   │   ├── baseline.py           # global mean; mean + bias
+│   │   ├── svd.py                # SVD cắt cụt trên ma trận phần dư
+│   │   ├── als.py                # ALS, giải hệ bằng Cholesky (numba, song song)
+│   │   └── sgd.py                # SGD, Momentum, Adam theo mini-batch, dừng sớm
 │   ├── solvers/
-│   │   ├── __init__.py
-│   │   └── linear.py             # Cholesky tự cài (Ch.2)
+│   │   └── linear.py             # phân rã Cholesky, thế tiến, thế lùi tự cài
 │   ├── evaluation/
-│   │   ├── __init__.py
 │   │   ├── metrics.py            # RMSE, MAE
 │   │   ├── convergence.py        # nhật ký theo vòng lặp và thời gian
-│   │   └── conditioning.py       # số điều kiện theo λ (Ch.1–3)
+│   │   └── conditioning.py       # số điều kiện của hệ ALS theo λ
 │   └── visualization/
-│       ├── __init__.py
-│       └── plots.py              # hàm vẽ chung
+│       └── plots.py              # hàm vẽ dùng chung
 ├── experiments/
-│   ├── run_baseline.py           # mốc RMSE baseline
-│   ├── run_svd.py                # RMSE và phổ giá trị kỳ dị
-│   ├── run_als.py                # hội tụ ALS, số điều kiện theo λ
-│   ├── run_sgd.py                # so sánh 3 optimizer
-│   ├── tune_k_lambda.py          # quét k, λ trên tập val
-│   └── compare_all.py            # bảng và hình tổng, nơi duy nhất dùng tập test
+│   ├── run_baseline.py           # bước 2
+│   ├── run_svd.py                # bước 3
+│   ├── run_als.py                # bước 4
+│   ├── run_sgd.py                # bước 5
+│   ├── tune_k_lambda.py          # bước 6
+│   └── compare_all.py            # bước 7, nơi duy nhất dùng tập test
 ├── notebooks/
-│   └── 01_eda.ipynb              # thống kê mô tả
-├── results/                      # sinh tự động, không commit
-│   ├── figures/
-│   └── tables/
-├── reports/
-│   └── sections/                 # mỗi người viết một file báo cáo
-└── tests/
-    ├── test_metrics.py           # kiểm thử RMSE, MAE
-    ├── test_base.py              # kiểm thử giao diện chung của mô hình
-    └── test_models_small.py      # ma trận nhỏ biết trước đáp án
+│   ├── 01_eda.ipynb              # phân tích khám phá, xuất hình cho báo cáo
+│   └── 02_results.ipynb          # xem và đối chiếu toàn bộ kết quả
+├── tests/
+│   ├── test_metrics.py
+│   ├── test_base.py
+│   └── test_models_small.py      # mô hình trên ma trận nhỏ biết trước đáp án
+├── reports/                      # một phần nguồn báo cáo; bản đầy đủ biên soạn trên Prism
+├── data/                         # không commit
+│   ├── raw/ml-1m/                #   dữ liệu gốc (bước 0)
+│   └── processed/                #   train/val/test .parquet, id_maps.npz, train_csr.npz (bước 1)
+└── results/                      # sinh tự động, không commit
+    ├── tables/                   #   bảng .csv
+    ├── figures/                  #   hình .png
+    └── models/                   #   mô hình đã huấn luyện .pkl
 ```
+
+## Nhóm
+
+Nhóm 01, lớp L01. Phân công chi tiết trong [doc/PHAN_CONG.md](doc/PHAN_CONG.md).
+
+## Trích dẫn dữ liệu
+
+F. Maxwell Harper, Joseph A. Konstan. *The MovieLens Datasets: History and Context*. ACM Transactions on
+Interactive Intelligent Systems 5(4), 2015. <https://doi.org/10.1145/2827872>

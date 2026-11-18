@@ -82,11 +82,12 @@ def run(cfg: dict[str, Any]) -> None:
             init_std=settings["init_std"],
             hyper=settings,
             seed=cfg["seed"],
+            patience=settings["patience"],
         )
 
         model.fit(train, val)
 
-        # Đánh giá mô hình ở epoch cuối trên validation.
+        # Đánh giá mô hình đã giữ lại (epoch có val RMSE thấp nhất) trên validation.
         predictions = model.predict(val_users, val_items)
 
         if not np.all(np.isfinite(predictions)):
@@ -114,6 +115,8 @@ def run(cfg: dict[str, Any]) -> None:
             "reg": settings["reg"],
             "lr": settings["lr"][optimizer],
             "n_epochs": settings["n_epochs"],
+            "best_epoch": model.best_epoch_,
+            "epochs_run": int(history.iloc[-1]["epoch"]),
             "batch_size": settings["batch_size"],
             "seed": cfg["seed"],
             "val_rmse": val_rmse,
@@ -123,7 +126,8 @@ def run(cfg: dict[str, Any]) -> None:
 
         print(
             f"{optimizer}: RMSE={val_rmse:.4f}, "
-            f"MAE={val_mae:.4f}, time={elapsed:.2f}s"
+            f"MAE={val_mae:.4f}, time={elapsed:.2f}s, "
+            f"best epoch={model.best_epoch_}/{int(history.iloc[-1]['epoch'])}"
         )
 
         # Chọn optimizer có RMSE validation thấp nhất.
@@ -131,6 +135,8 @@ def run(cfg: dict[str, Any]) -> None:
             best_rmse = val_rmse
             best_optimizer = optimizer
             model.save(models_dir / "sgd_best.pkl")
+            # Tên `sgd.pkl` để `python -m src.recommend --model sgd` tìm thấy.
+            model.save(models_dir / "sgd.pkl")
 
     # 5. Lưu bảng so sánh.
     table = pd.DataFrame(summary).sort_values("val_rmse")

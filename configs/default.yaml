@@ -26,16 +26,18 @@ svd:
   k: 20
 
 als:
-  k: 20
-  reg: 10.0         # λ trong (QᵀQ + λI)p = Qᵀr
+  k: 10             # chọn trên val bằng tune_k_lambda: k = 10 tốt nhất ở λ = 10
+  reg: 10.0         # λ trong (QᵀQ + λI)p = Qᵀr; quét tại k = 10, λ = 10 tốt nhất
   n_epochs: 20
   init_std: 0.1
   solver: cholesky  # cholesky | gauss_seidel (tùy chọn)
 
 sgd:
   k: 20
-  reg: 0.02         # λ theo từng đánh giá, KHÔNG cùng thang với als.reg
-  n_epochs: 30
+  reg: 0.05         # λ theo từng đánh giá, KHÔNG cùng thang với als.reg. Chọn theo val:
+                    # 0.02 overfit sau 2–16 epoch, 0.1 trở lên học chưa đủ.
+  n_epochs: 30      # số epoch tối đa
+  patience: 3       # dừng sớm khi val RMSE không giảm 3 epoch liên tiếp
   batch_size: 4096
   init_std: 0.1
   optimizer: adam   # sgd | momentum | adam
