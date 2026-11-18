@@ -155,7 +155,6 @@ mf-recsys/
 ├── configs/
 │   └── default.yaml              # toàn bộ tham số: seed, tỉ lệ chia, k, λ, lr, số epoch, lưới quét
 ├── doc/
-│   ├── PHAN_CONG.md              # phân công theo thành viên
 │   └── TIEN_DO.md                # tiến độ và nhận xét review
 ├── src/
 │   ├── config.py                 # đọc YAML, đặt seed
@@ -193,7 +192,6 @@ mf-recsys/
 │   ├── test_metrics.py
 │   ├── test_base.py
 │   └── test_models_small.py      # mô hình trên ma trận nhỏ biết trước đáp án
-├── reports/                      # một phần nguồn báo cáo; bản đầy đủ biên soạn trên Prism
 ├── data/                         # không commit
 │   ├── raw/ml-1m/                #   dữ liệu gốc (bước 0)
 │   └── processed/                #   train/val/test .parquet, id_maps.npz, train_csr.npz (bước 1)
@@ -202,10 +200,6 @@ mf-recsys/
     ├── figures/                  #   hình .png
     └── models/                   #   mô hình đã huấn luyện .pkl
 ```
-
-## Nhóm
-
-Nhóm 01, lớp L01. Phân công chi tiết trong [doc/PHAN_CONG.md](doc/PHAN_CONG.md).
 
 ## Trích dẫn dữ liệu
 
